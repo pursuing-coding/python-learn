@@ -38,8 +38,8 @@ test("locks lessons, unlocks the next lesson, and protects reset", async ({ page
 
   await expect(page).toHaveTitle("python-learn");
   await expect(page.locator(".brand strong")).toHaveText("python-learn");
-  await expect(page.locator(".level-item")).toHaveCount(13);
-  await expect(page.locator(".level-item:disabled")).toHaveCount(12);
+  await expect(page.locator(".level-item")).toHaveCount(33);
+  await expect(page.locator(".level-item:disabled")).toHaveCount(32);
   await expect(page.locator("#resetProgress")).toBeDisabled();
 
   await expect(page.locator(".level-item").nth(2)).toHaveAttribute("title", "完成前一章后解锁");
@@ -50,8 +50,8 @@ test("locks lessons, unlocks the next lesson, and protects reset", async ({ page
 
   await expect(page.locator("#consoleOutput")).toContainText("[本章全部测试通过]");
   await expect(page.locator("#consoleOutput")).toContainText("Unlocked: 2.");
-  await expect(page.locator("#progressText")).toHaveText("1/13 章");
-  await expect(page.locator(".level-item:disabled")).toHaveCount(11);
+  await expect(page.locator("#progressText")).toHaveText("1/33 章");
+  await expect(page.locator(".level-item:disabled")).toHaveCount(31);
   await expect(page.locator(".level-item").nth(1)).toBeEnabled();
   await expect(page.locator("#resetProgress")).toBeEnabled();
   await expect(page.locator("#nextLesson")).toBeVisible();
@@ -62,15 +62,15 @@ test("locks lessons, unlocks the next lesson, and protects reset", async ({ page
     await dialog.dismiss();
   });
   await page.locator("#resetProgress").click();
-  await expect(page.locator("#progressText")).toHaveText("1/13 章");
+  await expect(page.locator("#progressText")).toHaveText("1/33 章");
 
   page.once("dialog", async (dialog) => {
     expect(dialog.message()).toBe("确认重置学习进度？");
     await dialog.accept();
   });
   await page.locator("#resetProgress").click();
-  await expect(page.locator("#progressText")).toHaveText("0/13 章");
-  await expect(page.locator(".level-item:disabled")).toHaveCount(12);
+  await expect(page.locator("#progressText")).toHaveText("0/33 章");
+  await expect(page.locator(".level-item:disabled")).toHaveCount(32);
   await expect(page.locator("#resetProgress")).toBeDisabled();
 });
 
@@ -88,17 +88,17 @@ test("switches standard cases and restores expected stdin", async ({ page }) => 
   await page.reload();
 
   await page.locator(".level-item").nth(2).click();
-  await page.getByRole("button", { name: /n = 5/ }).click();
+  await page.getByRole("button", { name: /a=9 b=4/ }).click();
 
-  await expect(page.locator("#stdinInput")).toHaveValue("5");
+  await expect(page.locator("#stdinInput")).toHaveValue("9\n4");
   await expect(page.locator("#testSummary")).toHaveText("0/3 通过");
 });
 
 test("runs every standard case and unlocks progress through submit", async ({ page }) => {
   const outputByInput = {
-    "10": "55\n",
-    "5": "15\n",
-    "0": "0\n"
+    "17\n5": "17 + 5 = 22\n17 // 5 = 3\n17 % 5 = 2\n17 ** 2 = 289\n17 / 5 = 3.4\n",
+    "9\n4": "9 + 4 = 13\n9 // 4 = 2\n9 % 4 = 1\n9 ** 2 = 81\n9 / 4 = 2.25\n",
+    "12\n6": "12 + 6 = 18\n12 // 6 = 2\n12 % 6 = 0\n12 ** 2 = 144\n12 / 6 = 2.0\n"
   };
   await mockPythonRunner(page, (payload) => outputByInput[String(payload.stdin || "").trim()] || "");
   await page.evaluate(() => {
@@ -120,7 +120,7 @@ test("runs every standard case and unlocks progress through submit", async ({ pa
 
   await expect(page.locator("#consoleOutput")).toContainText("[全测完成: 本次 3/3 通过");
   await expect(page.locator("#consoleOutput")).toContainText("Unlocked: 4.");
-  await expect(page.locator("#progressText")).toHaveText("3/13 章");
+  await expect(page.locator("#progressText")).toHaveText("3/33 章");
   await expect
     .poll(async () =>
       page.evaluate(() => {

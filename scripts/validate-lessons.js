@@ -46,8 +46,8 @@ const lessons = context.window.PY_LESSONS;
 if (!Array.isArray(lessons)) {
   throw new Error("PY_LESSONS must be an array.");
 }
-if (lessons.length !== 13) {
-  throw new Error(`Expected 13 lessons, found ${lessons.length}.`);
+if (lessons.length !== 33) {
+  throw new Error(`Expected 33 lessons, found ${lessons.length}.`);
 }
 
 function findPython() {

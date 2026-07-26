@@ -1,9 +1,11 @@
 const lessons = Array.isArray(window.PY_LESSONS) ? window.PY_LESSONS : [];
 const totalLessons = lessons.length;
 const groupDefinitions = [
-  { title: "Level 1: 语言基础 (Foundation)", start: 0, end: 4 },
-  { title: "Level 2: 语言核心 (Core)", start: 4, end: 8 },
-  { title: "Level 3: 进阶实战 (Advanced)", start: 8, end: 13 }
+  { title: "Level 1: 语言基础 (Foundation)", start: 0, end: 8 },
+  { title: "Level 2: 数据结构与核心 (Core)", start: 8, end: 15 },
+  { title: "Level 3: 面向对象与模块 (Object)", start: 15, end: 22 },
+  { title: "Level 4: 标准库实战 (Stdlib)", start: 22, end: 29 },
+  { title: "Level 5: 综合项目 (Capstone)", start: 29, end: 33 }
 ];
 const courseGroups = groupDefinitions
   .map((group) => ({ ...group, lessons: lessons.slice(group.start, group.end) }))

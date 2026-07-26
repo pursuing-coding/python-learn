@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>python-learn</title>
+    <meta
+      name="description"
+      content="面向 Python 入门到进阶学习的浏览器课程实验室，支持代码练习、测试用例和本地/在线运行。"
+    />
+    <meta name="theme-color" content="#2563eb" />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="./course-data.js" defer></script>
+    <script src="./app.js" defer></script>
+  </head>
+  <body>
+    <div class="training-app">
+      <header class="app-header">
+        <div class="brand">
+          <span class="brand-badge" aria-hidden="true">
+            <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <linearGradient id="pyTop" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stop-color="#5aa9e6" />
+                  <stop offset="100%" stop-color="#2f6fb3" />
+                </linearGradient>
+                <linearGradient id="pyBottom" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stop-color="#ffe066" />
+                  <stop offset="100%" stop-color="#f5cf49" />
+                </linearGradient>
+                <filter id="softShadow" x="-10%" y="-10%" width="120%" height="120%">
+                  <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000000" flood-opacity="0.3" />
+                </filter>
+              </defs>
+              <g filter="url(#softShadow)">
+                <path d="M50 20c-11 0-17 4-17 12v8h17v3H27c-6 0-9 4-9 14s3 14 9 14h8v-9c0-6 5-10 12-10h14c6 0 10-3 10-9V32c0-8-6-12-21-12zm-8 8a3.6 3.6 0 1 1 0 7.2 3.6 3.6 0 0 1 0-7.2z" fill="url(#pyTop)" />
+                <path d="M50 80c11 0 17-4 17-12v-8H50v-3h23c6 0 9-4 9-14s-3-14-9-14h-8v9c0 6-5 10-12 10H39c-6 0-10 3-10 9v25c0 8 6 12 21 12zm8-8a3.6 3.6 0 1 1 0-7.2 3.6 3.6 0 0 1 0 7.2z" fill="url(#pyBottom)" />
+              </g>
+            </svg>
+          </span>
+          <div>
+            <strong>python-learn</strong>
+            <span>Python 学习路径与代码实验室</span>
+          </div>
+        </div>
+
+        <div class="progress-hub" aria-label="学习进度">
+          <strong>学习进度: <span id="progressText">0/0 章</span></strong>
+          <div class="progress-track"><span id="progressBar"></span></div>
+          <b id="progressPercent">0%</b>
+        </div>
+
+        <div class="header-actions">
+          <button class="square-button" id="themeToggle" type="button" aria-label="切换日夜模式" title="切换日夜模式">
+            <span class="button-glyph">☾</span>
+          </button>
+          <button class="square-button" id="resetProgress" type="button" aria-label="重置学习进度" title="重置学习进度">
+            <span class="button-glyph">↻</span>
+          </button>
+        </div>
+      </header>
+
+      <div class="study-grid">
+        <aside class="level-sidebar" aria-label="课程章节">
+          <div id="levelList" class="level-list"></div>
+        </aside>
+
+        <main class="lesson-column" aria-label="课程正文">
+          <article id="lessonArticle" class="lesson-article"></article>
+        </main>
+
+        <section class="practice-column" aria-label="Python 编辑器与输出">
+          <div class="editor-panel">
+            <div class="panel-toolbar">
+              <span><b class="tool-mark">&gt;&gt;&gt;</b> Python 编辑器 <em>main.py</em></span>
+              <div>
+                <button class="soft-button" id="focusCode" type="button">
+                  <span class="button-glyph">↗</span>
+                  专注代码
+                </button>
+                <button class="soft-button" id="showAnswer" type="button">
+                  <span class="button-glyph">?</span>
+                  查看答案
+                </button>
+                <button class="run-button" id="runCode" type="button">
+                  <span class="button-glyph">▶</span>
+                  运行代码
+                </button>
+              </div>
+            </div>
+            <div class="code-surface">
+              <pre class="editor-lines" id="editorLines" aria-hidden="true">1</pre>
+              <div class="editor-container">
+                <pre class="editor-highlight" id="editorHighlight" aria-hidden="true"></pre>
+                <textarea id="codeEditor" spellcheck="false" wrap="soft" aria-label="Python 代码编辑器"></textarea>
+              </div>
+            </div>
+          </div>
+
+          <div class="io-grid">
+            <div class="input-panel">
+              <div class="panel-toolbar">
+                <span><b class="tool-mark">&lt;</b> 标准输入 <em>stdin</em></span>
+                <button class="link-button" id="clearStdin" type="button">清空输入</button>
+              </div>
+              <div class="case-dock" aria-label="测试用例">
+                <div class="section-heading-row">
+                  <strong>用例</strong>
+                  <span id="testSummary">0/0 通过</span>
+                </div>
+                <div id="testCaseList" class="test-case-list"></div>
+
+              </div>
+              <textarea id="stdinInput" spellcheck="false" wrap="soft" aria-label="标准输入"></textarea>
+            </div>
+
+            <div class="console-panel">
+              <div class="panel-toolbar">
+                <span><b class="tool-mark">$_</b> 控制台输出 <em>Terminal</em></span>
+                <button class="link-button" id="clearConsole" type="button">清空控制台</button>
+              </div>
+              <pre id="consoleOutput">Loaded: 1. Python 解释执行模型与第一个程序</pre>
+              <span id="runMeta" class="run-meta">等待运行</span>
+            </div>
+          </div>
+
+          <div class="submit-row">
+            <button class="submit-button" id="submitTask" type="button">
+              <span class="button-glyph">✓</span>
+              提交验证
+            </button>
+            <button class="next-button" id="nextLesson" type="button" hidden disabled>
+              <span class="button-glyph">→</span>
+              下一章
+            </button>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <aside class="answer-drawer" id="answerDrawer" aria-hidden="true">
+      <div class="answer-drawer-header">
+        <div>
+          <strong>参考实现</strong>
+          <span>当前章节示例答案</span>
+        </div>
+        <button class="square-button compact" id="closeAnswer" type="button" aria-label="隐藏答案" title="隐藏答案">
+          <span class="button-glyph">×</span>
+        </button>
+      </div>
+      <div class="answer-drawer-body">
+        <div id="answerContent"></div>
+      </div>
+    </aside>
+
+    <div class="focus-modal" id="focusModal" aria-hidden="true">
+      <div class="focus-dialog" role="dialog" aria-modal="true" aria-label="专注代码">
+        <header class="focus-header">
+          <div>
+            <strong>专注代码</strong>
+            <span>main.py · 单文件练习</span>
+          </div>
+          <div class="focus-actions">
+            <button class="soft-button" id="focusRun" type="button">
+              <span class="button-glyph">▶</span>
+              运行
+            </button>
+            <button class="square-button compact" id="closeFocus" type="button" aria-label="关闭专注模式" title="关闭">
+              <span class="button-glyph">×</span>
+            </button>
+          </div>
+        </header>
+        <div class="focus-body">
+          <div class="code-surface focus-code-surface">
+            <pre class="editor-lines" id="focusLines" aria-hidden="true">1</pre>
+            <div class="editor-container">
+              <pre class="editor-highlight" id="focusHighlight" aria-hidden="true"></pre>
+              <textarea id="focusEditor" spellcheck="false" wrap="soft" aria-label="专注模式 Python 代码编辑器"></textarea>
+            </div>
+          </div>
+          <div class="focus-io-column">
+            <div class="focus-input-panel">
+              <div class="focus-console-title">
+                <span>输入</span>
+                <span>stdin</span>
+              </div>
+              <textarea id="focusStdinInput" spellcheck="false" wrap="soft" aria-label="专注模式标准输入"></textarea>
+            </div>
+            <div class="focus-console">
+              <div class="focus-console-title">
+                <span>输出</span>
+                <span id="focusRunMeta">等待运行</span>
+              </div>
+              <pre id="focusOutput"></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

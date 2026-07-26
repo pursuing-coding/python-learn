@@ -1,0 +1,20 @@
+{
+  "name": "python-learn",
+  "version": "1.0.0",
+  "private": true,
+  "description": "面向 Python 入门到进阶学习的静态课程实验室。",
+  "type": "module",
+  "scripts": {
+    "check": "node scripts/validate-lessons.js",
+    "smoke:ui": "playwright test",
+    "verify": "npm run check && npm run smoke:ui",
+    "start": "node server.js",
+    "preview": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0"
+  }
+}

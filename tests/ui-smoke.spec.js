@@ -184,6 +184,26 @@ test("sends standard input to the runner and supports focus mode", async ({ page
   await expect(page.locator("#stdinInput")).toHaveValue("Bob\n19");
 });
 
+test("live quest checklist tracks editing and passing in real time", async ({ page }) => {
+  await mockPythonRunner(page, () => "Hello, Python World!\n");
+
+  const quests = page.locator(".quest-item");
+  await expect(quests).toHaveCount(3);
+  await expect(page.locator(".quest-item.is-done")).toHaveCount(0);
+
+  await page.locator("#codeEditor").fill(helloWorld);
+  await expect(quests.nth(0)).toHaveClass(/is-done/);
+  await expect(page.locator(".quest-item.is-done")).toHaveCount(1);
+
+  await page.locator("#submitTask").click();
+  await expect(page.locator(".quest-item.is-done")).toHaveCount(3);
+  await expect(quests.nth(2).locator(".quest-mark")).toHaveText("✓");
+
+  // Restored drafts keep the checklist state after a reload.
+  await page.reload();
+  await expect(page.locator(".quest-item.is-done")).toHaveCount(3);
+});
+
 test("core UI panels open without layout overflow", async ({ page }) => {
   await expect.poll(() => hasHorizontalOverflow(page)).toBe(false);
 

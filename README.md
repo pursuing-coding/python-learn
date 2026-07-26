@@ -3,7 +3,7 @@
 [![Version](https://img.shields.io/badge/version-1.0.0-3776ab.svg?style=flat-square)](https://github.com/pursuing-coding/python-learn/releases/tag/v1.0.0)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Web%20%7C%20Mobile-ffd43b.svg?style=flat-square)](#)
-[![Tests Status](https://img.shields.io/badge/tests-12%2F12%20passed-16a34a.svg?style=flat-square)](#)
+[![Tests Status](https://img.shields.io/badge/tests-14%2F14%20passed-16a34a.svg?style=flat-square)](#)
 
 面向 Python 从入门到进阶学习的**现代化浏览器课程实验室**。界面采用 **Azure-Amber（湖蓝-琥珀）** 专业配色与响应式玻璃摩登设计，集成课程阅读、代码编辑、实时运行、测试用例验证与进度追踪于一体的轻量级实验室系统。
 
@@ -18,8 +18,8 @@
   * 取自 Python 官方视觉的湖蓝 + 琥珀双色系，支持全局一键日夜模式平滑切换。
   * 优雅的微交互效果（卡片浮起、按钮渐变缩放、加载态发光过渡）。
   * 极致响应式视口布局（桌面端三栏、移动端紧凑布局，无水平溢出滚动条）。
-* 📝 **实时学习目标清单**
-  * 系统根据代码状态（修改初始代码、通过首个用例、通过本章全部测试）实时判定进度，提升学习成就感。
+* 📝 **实时实战进度清单**（本系列独有，随键入即时判定）
+  * 每章配备三步实战清单——「动手修改初始代码 → 通过第一个测试用例 → 通过本章全部测试」，系统随代码编辑与测试结果**逐键实时打勾**，蓝金渐变对勾圆环即时反馈学习成就。
 * 🔍 **零依赖 Python 语法高亮引擎**
   * 自主设计的正则词法解析引擎，无需外部库即可精准着色关键字、内建函数、装饰器、字符串、注释与数字。
 * ⚙️ **双轨代码执行通道**

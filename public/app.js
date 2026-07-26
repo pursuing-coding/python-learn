@@ -2,8 +2,8 @@ const lessons = Array.isArray(window.PY_LESSONS) ? window.PY_LESSONS : [];
 const totalLessons = lessons.length;
 const groupDefinitions = [
   { title: "Level 1: 语言基础 (Foundation)", start: 0, end: 4 },
-  { title: "Level 2: 核心数据结构 (Core)", start: 4, end: 8 },
-  { title: "Level 3: 工程实战 (Practice)", start: 8, end: 13 }
+  { title: "Level 2: 语言核心 (Core)", start: 4, end: 8 },
+  { title: "Level 3: 进阶实战 (Advanced)", start: 8, end: 13 }
 ];
 const courseGroups = groupDefinitions
   .map((group) => ({ ...group, lessons: lessons.slice(group.start, group.end) }))
@@ -12,7 +12,6 @@ const courseGroups = groupDefinitions
 const progressStorageKey = "python-learn-progress-v2";
 const draftStorageKey = "python-learn-drafts-v2";
 const themeStorageKey = "python-learn-theme";
-const legacyStateStorageKey = "python-learn-state-v1";
 const maxDraftLength = 30_000;
 const judge0Endpoint = "https://ce.judge0.com/submissions?base64_encoded=true&wait=true";
 const python3LanguageId = 71;
@@ -82,15 +81,6 @@ function normalizeCompletedCount(value) {
   return Math.max(0, Math.min(totalLessons, Math.floor(numeric)));
 }
 
-function readLegacyState() {
-  try {
-    const raw = localStorage.getItem(legacyStateStorageKey);
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
-}
-
 function readStoredProgress() {
   try {
     const raw = localStorage.getItem(progressStorageKey);
@@ -112,23 +102,6 @@ function readStoredProgress() {
         passedTestCaseIdsByLessonId:
           parsed.passedTestCaseIdsByLessonId && typeof parsed.passedTestCaseIdsByLessonId === "object"
             ? normalizePassedMap(parsed.passedTestCaseIdsByLessonId)
-            : {}
-      };
-    }
-
-    const legacy = readLegacyState();
-    if (Array.isArray(legacy.completedChapterIds)) {
-      let completedCount = 0;
-      const completedIds = new Set(legacy.completedChapterIds.map(Number));
-      while (completedCount < lessons.length && completedIds.has(lessons[completedCount].id)) {
-        completedCount += 1;
-      }
-
-      return {
-        completedLessons: normalizeCompletedCount(completedCount),
-        passedTestCaseIdsByLessonId:
-          legacy.passedTestCaseIdsByChapter && typeof legacy.passedTestCaseIdsByChapter === "object"
-            ? normalizePassedMap(legacy.passedTestCaseIdsByChapter)
             : {}
       };
     }
@@ -159,10 +132,7 @@ function normalizePassedMap(value) {
 function readStoredTheme() {
   try {
     const theme = localStorage.getItem(themeStorageKey);
-    if (theme === "light" || theme === "dark") return theme;
-
-    const legacy = readLegacyState();
-    return legacy.theme === "dark" ? "dark" : "light";
+    return theme === "dark" ? "dark" : "light";
   } catch {
     return "light";
   }
@@ -171,20 +141,11 @@ function readStoredTheme() {
 function readStoredDrafts() {
   try {
     const raw = localStorage.getItem(draftStorageKey);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      const drafts = parsed?.drafts && typeof parsed.drafts === "object" ? parsed.drafts : {};
-      return Object.fromEntries(
-        Object.entries(drafts)
-          .filter(([lessonId, code]) => typeof lessonId === "string" && typeof code === "string")
-          .map(([lessonId, code]) => [lessonId, code.slice(0, maxDraftLength)])
-      );
-    }
-
-    const legacy = readLegacyState();
-    const codeByChapter = legacy.codeByChapter && typeof legacy.codeByChapter === "object" ? legacy.codeByChapter : {};
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    const drafts = parsed?.drafts && typeof parsed.drafts === "object" ? parsed.drafts : {};
     return Object.fromEntries(
-      Object.entries(codeByChapter)
+      Object.entries(drafts)
         .filter(([lessonId, code]) => typeof lessonId === "string" && typeof code === "string")
         .map(([lessonId, code]) => [lessonId, code.slice(0, maxDraftLength)])
     );
@@ -421,6 +382,36 @@ function renderLevels() {
     .join("");
 }
 
+const questDefinitions = [
+  { key: "modified", label: "动手修改初始代码" },
+  { key: "first-pass", label: "通过第一个测试用例" },
+  { key: "all-pass", label: "通过本章全部测试" }
+];
+
+function getQuestStates(lesson = getCurrentLesson()) {
+  const testCases = getTestCases(lesson);
+  const passedIds = getPassedIds(lesson);
+  const passedCount = testCases.filter((testCase) => passedIds.has(testCase.id)).length;
+
+  return {
+    modified: normalizeOutput(codeEditor.value) !== normalizeOutput(lesson.starterCode || ""),
+    "first-pass": passedCount > 0,
+    "all-pass": testCases.length > 0 && passedCount === testCases.length
+  };
+}
+
+// Lightweight per-keystroke refresh: toggles classes on the existing quest
+// nodes instead of rebuilding the whole lesson article.
+function updateQuestChecklist(lesson = getCurrentLesson()) {
+  const states = getQuestStates(lesson);
+  document.querySelectorAll(".quest-item").forEach((item) => {
+    const done = Boolean(states[item.dataset.quest]);
+    item.classList.toggle("is-done", done);
+    const mark = item.querySelector(".quest-mark");
+    if (mark) mark.textContent = done ? "✓" : "";
+  });
+}
+
 function renderLessonContent(lesson, displayIndex = currentLessonIndex) {
   const testCases = getTestCases(lesson);
   const passedCount = testCases.filter((testCase) => getPassedIds(lesson).has(testCase.id)).length;
@@ -430,6 +421,14 @@ function renderLessonContent(lesson, displayIndex = currentLessonIndex) {
     <div class="stepper-item">
       <span class="stepper-num">0${index + 1}</span>
       <span class="stepper-text">${inlineCode(goal)}</span>
+    </div>
+  `).join("");
+
+  const questStates = getQuestStates(lesson);
+  const questsHtml = questDefinitions.map((quest) => `
+    <div class="quest-item ${questStates[quest.key] ? "is-done" : ""}" data-quest="${quest.key}">
+      <span class="quest-mark">${questStates[quest.key] ? "✓" : ""}</span>
+      <span class="quest-label">${escapeHtml(quest.label)}</span>
     </div>
   `).join("");
 
@@ -448,6 +447,10 @@ function renderLessonContent(lesson, displayIndex = currentLessonIndex) {
     <section class="lesson-goals" aria-label="学习目标">
       <h2>学习目标</h2>
       <div class="stepper-list">${goalsHtml}</div>
+    </section>
+    <section class="lesson-goals quest-panel" aria-label="实战进度">
+      <h2>实战进度</h2>
+      <div class="quest-list">${questsHtml}</div>
     </section>
     <div class="prose">${renderMarkdown(lesson.tutorial || "")}</div>
     <div class="task-box">
@@ -624,7 +627,11 @@ function hasSavedDrafts() {
 
 function clearDrafts() {
   lessonDrafts = {};
-  localStorage.removeItem(draftStorageKey);
+  try {
+    localStorage.removeItem(draftStorageKey);
+  } catch {
+    // Ignore storage failures; in-memory state is already cleared.
+  }
   updateResetButtonState();
 }
 
@@ -632,7 +639,7 @@ function setProgress(nextCompletedLessons) {
   completedLessons = normalizeCompletedCount(nextCompletedLessons);
   const percent = totalLessons === 0 ? 0 : Math.round((completedLessons / totalLessons) * 100);
   progressText.textContent = `${completedLessons}/${totalLessons} 章`;
-  progressPercent.textContent = `${percent}%`;
+  progressPercent.textContent = percent === 100 ? "100% 🏆" : `${percent}%`;
   progressBar.style.width = `${percent}%`;
   writeStoredProgress();
   updateResetButtonState();
@@ -707,7 +714,11 @@ function setAnswerDrawer(open) {
 
 function setTheme(theme) {
   document.documentElement.dataset.theme = theme;
-  localStorage.setItem(themeStorageKey, theme);
+  try {
+    localStorage.setItem(themeStorageKey, theme);
+  } catch {
+    // Theme persistence is optional (e.g. private browsing).
+  }
   themeToggle.innerHTML = `<span class="button-glyph">${theme === "dark" ? "☀" : "☾"}</span>`;
 }
 
@@ -1152,6 +1163,7 @@ function bindEvents() {
   codeEditor.addEventListener("input", () => {
     syncEditorChrome(codeEditor, editorLines);
     saveCurrentDraft();
+    updateQuestChecklist();
   });
 
   document.querySelector("#focusCode").addEventListener("click", () => {
@@ -1177,6 +1189,7 @@ function bindEvents() {
     runMeta.className = `run-meta ${focusRunMeta.className || ""}`.trim();
     focusModal.classList.remove("is-open");
     focusModal.setAttribute("aria-hidden", "true");
+    updateQuestChecklist();
   });
 
   document.querySelector("#focusRun").addEventListener("click", () => {
@@ -1236,7 +1249,11 @@ function bindEvents() {
   resetProgress.addEventListener("click", () => {
     if (!resetProgress.disabled && !window.confirm("确认重置学习进度？")) return;
 
-    localStorage.removeItem(progressStorageKey);
+    try {
+      localStorage.removeItem(progressStorageKey);
+    } catch {
+      // Ignore storage failures; in-memory reset still proceeds.
+    }
     clearDrafts();
     passedTestCaseIdsByLessonId = {};
     completedLessons = 0;

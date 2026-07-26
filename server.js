@@ -7,6 +7,9 @@ import { extname, isAbsolute, join, relative, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
 const port = Number(process.env.PORT || 4173);
+// /api/run executes arbitrary Python, so only listen on loopback by default.
+// Set HOST=0.0.0.0 explicitly to expose the server on the local network.
+const host = process.env.HOST || "127.0.0.1";
 const publicDir = resolve("public");
 const maxCodeLength = 20_000;
 const maxOutputLength = 12_000;
@@ -224,6 +227,9 @@ function runCommand(command, args, options = {}) {
       });
     });
 
+    // A process that exits before consuming stdin raises EPIPE on the stdin
+    // stream; without a handler that error event would crash the server.
+    child.stdin.on("error", () => {});
     if (options.stdin) child.stdin.write(options.stdin);
     child.stdin.end();
   });
@@ -385,6 +391,6 @@ const server = createServer(async (request, response) => {
   }
 });
 
-server.listen(port, () => {
-  console.log(`python-learn is running at http://localhost:${port}`);
+server.listen(port, host, () => {
+  console.log(`python-learn is running at http://${host}:${port}`);
 });

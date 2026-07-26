@@ -688,10 +688,14 @@ a:hover {
 .code-pill {
   display: inline-flex;
   align-items: center;
+  padding: 1px 6px;
   border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
   border-radius: 6px;
   background: var(--panel-soft);
   color: var(--brand-strong);
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-weight: 500;
+  font-size: 0.82rem;
 }
 
 .fact-item {
@@ -742,13 +746,6 @@ a:hover {
 .fact-status.all-passed {
   color: var(--success);
   font-weight: 600;
-}
-
-.code-pill {
-  padding: 1px 6px;
-  font-family: "JetBrains Mono", Consolas, monospace;
-  font-weight: 500;
-  font-size: 0.82rem;
 }
 
 .example-box,

@@ -154,7 +154,7 @@ function readStoredDrafts() {
   }
 }
 
-function writeStoredDrafts() {
+function writeStoredDraftsNow() {
   try {
     localStorage.setItem(
       draftStorageKey,
@@ -166,6 +166,25 @@ function writeStoredDrafts() {
   } catch {
     // localStorage can be disabled or full. The editor stays usable.
   }
+}
+
+// Drafts change on every keystroke; batch localStorage writes instead of
+// serializing the whole draft map per key press.
+let draftWriteTimer = 0;
+
+function writeStoredDrafts() {
+  window.clearTimeout(draftWriteTimer);
+  draftWriteTimer = window.setTimeout(() => {
+    draftWriteTimer = 0;
+    writeStoredDraftsNow();
+  }, 300);
+}
+
+function flushDraftWrites() {
+  if (!draftWriteTimer) return;
+  window.clearTimeout(draftWriteTimer);
+  draftWriteTimer = 0;
+  writeStoredDraftsNow();
 }
 
 function writeStoredProgress() {
@@ -505,12 +524,14 @@ function highlightPython(code) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 
+  // Placeholders are wrapped in NUL bytes, which cannot be typed into the
+  // textarea, so user code can never collide with them. The inner "_<n>_"
+  // keeps the digits surrounded by word characters so the number highlighter
+  // (which relies on \b) never matches inside a placeholder.
   const tokens = [];
-  const placeholderPrefix = "___TOKEN_PLACEHOLDER_";
   const stash = (markup) => {
-    const id = placeholderPrefix + tokens.length + "___";
     tokens.push(markup);
-    return id;
+    return `\x00_${tokens.length - 1}_\x00`;
   };
 
   // Single lexical pass: strings and comments are matched together so a "#"
@@ -543,10 +564,8 @@ function highlightPython(code) {
   // Numbers (including 1_000_000-style separators).
   html = html.replace(/\b(\d[\d_]*(\.[\d_]+)?)\b/g, '<span class="hl-number">$1</span>');
 
-  // Restore stashed tokens (function form avoids $-pattern issues).
-  for (let i = 0; i < tokens.length; i += 1) {
-    html = html.replace(placeholderPrefix + i + "___", () => tokens[i]);
-  }
+  // Restore stashed tokens in one pass (function form avoids $-pattern issues).
+  html = html.replace(/\x00_(\d+)_\x00/g, (_, index) => tokens[index]);
 
   return html;
 }
@@ -627,6 +646,9 @@ function hasSavedDrafts() {
 
 function clearDrafts() {
   lessonDrafts = {};
+  // Cancel any pending debounced write so it cannot resurrect cleared drafts.
+  window.clearTimeout(draftWriteTimer);
+  draftWriteTimer = 0;
   try {
     localStorage.removeItem(draftStorageKey);
   } catch {
@@ -1049,13 +1071,31 @@ async function runAllTests(options = {}) {
   }
 }
 
+// Replace [start, end) with `value`, preferring execCommand so the browser
+// keeps the textarea's native undo/redo history. Falls back to a direct value
+// assignment (which drops undo history) when execCommand is unavailable.
+function replaceRange(textarea, start, end, value) {
+  textarea.focus();
+  textarea.setSelectionRange(start, end);
+
+  let handled = false;
+  try {
+    handled = value
+      ? document.execCommand("insertText", false, value)
+      : document.execCommand("delete", false);
+  } catch {
+    handled = false;
+  }
+
+  if (!handled) {
+    textarea.value = `${textarea.value.slice(0, start)}${value}${textarea.value.slice(end)}`;
+    textarea.setSelectionRange(start + value.length, start + value.length);
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+}
+
 function replaceSelection(textarea, value) {
-  const start = textarea.selectionStart;
-  const end = textarea.selectionEnd;
-  textarea.value = `${textarea.value.slice(0, start)}${value}${textarea.value.slice(end)}`;
-  textarea.selectionStart = start + value.length;
-  textarea.selectionEnd = start + value.length;
-  textarea.dispatchEvent(new Event("input", { bubbles: true }));
+  replaceRange(textarea, textarea.selectionStart, textarea.selectionEnd, value);
 }
 
 function outdentSelection(textarea) {
@@ -1065,10 +1105,9 @@ function outdentSelection(textarea) {
   const lineStart = value.lastIndexOf("\n", start - 1) + 1;
   const selected = value.slice(lineStart, end);
   const outdented = selected.replace(/^( {1,4}|\t)/gm, "");
-  textarea.value = `${value.slice(0, lineStart)}${outdented}${value.slice(end)}`;
-  textarea.selectionStart = lineStart;
-  textarea.selectionEnd = lineStart + outdented.length;
-  textarea.dispatchEvent(new Event("input", { bubbles: true }));
+  if (outdented === selected) return;
+  replaceRange(textarea, lineStart, end, outdented);
+  textarea.setSelectionRange(lineStart, lineStart + outdented.length);
 }
 
 function indentSelection(textarea) {
@@ -1084,10 +1123,8 @@ function indentSelection(textarea) {
   const lineStart = value.lastIndexOf("\n", start - 1) + 1;
   const selected = value.slice(lineStart, end);
   const indented = selected.replace(/^/gm, "    ");
-  textarea.value = `${value.slice(0, lineStart)}${indented}${value.slice(end)}`;
-  textarea.selectionStart = lineStart;
-  textarea.selectionEnd = lineStart + indented.length;
-  textarea.dispatchEvent(new Event("input", { bubbles: true }));
+  replaceRange(textarea, lineStart, end, indented);
+  textarea.setSelectionRange(lineStart, lineStart + indented.length);
 }
 
 function autoIndentLine(textarea) {
@@ -1103,6 +1140,10 @@ function autoIndentLine(textarea) {
 
 function bindEditorShortcuts(textarea, runAction) {
   textarea.addEventListener("keydown", (event) => {
+    // Never intercept keys while an IME is composing (e.g. typing Chinese
+    // comments): Enter/Tab confirm the candidate instead of editing code.
+    if (event.isComposing || event.keyCode === 229) return;
+
     if (event.key === "Tab") {
       event.preventDefault();
       if (event.shiftKey) {
@@ -1217,8 +1258,11 @@ function bindEvents() {
     }
   });
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && focusModal.classList.contains("is-open")) {
+    if (event.key !== "Escape") return;
+    if (focusModal.classList.contains("is-open")) {
       document.querySelector("#closeFocus").click();
+    } else if (answerDrawer.classList.contains("is-open")) {
+      setAnswerDrawer(false);
     }
   });
 
@@ -1273,6 +1317,11 @@ function bindEvents() {
   });
 
   window.addEventListener("resize", syncAnswerDrawerBounds);
+  // Persist any pending debounced draft before the page unloads or is hidden.
+  window.addEventListener("pagehide", flushDraftWrites);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") flushDraftWrites();
+  });
 }
 
 function boot() {

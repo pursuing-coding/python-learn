@@ -204,6 +204,44 @@ test("live quest checklist tracks editing and passing in real time", async ({ pa
   await expect(page.locator(".quest-item.is-done")).toHaveCount(3);
 });
 
+test("editor auto-indents, tab-indents, and keeps undo history", async ({ page }) => {
+  const editor = page.locator("#codeEditor");
+  await editor.click();
+  await editor.press("Control+a");
+  await editor.pressSequentially("if True:");
+  await editor.press("Enter");
+  await expect(editor).toHaveValue("if True:\n    ");
+
+  await editor.press("Tab");
+  await expect(editor).toHaveValue("if True:\n        ");
+
+  // Indentation edits must stay on the native undo stack.
+  await editor.press("Control+z");
+  await expect(editor).toHaveValue("if True:\n    ");
+});
+
+test("escape closes the answer drawer and removes it from focus order", async ({ page }) => {
+  await page.locator("#showAnswer").click();
+  await expect(page.locator("#answerDrawer")).toHaveClass(/is-open/);
+  await expect(page.locator("#closeAnswer")).toBeVisible();
+
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#answerDrawer")).not.toHaveClass(/is-open/);
+  // visibility: hidden keeps the closed drawer out of the keyboard tab order.
+  await expect(page.locator("#closeAnswer")).toBeHidden();
+});
+
+test("ctrl+s persists the draft immediately", async ({ page }) => {
+  await page.locator("#codeEditor").fill(helloWorld);
+  await page.keyboard.press("Control+s");
+
+  // No debounce wait: the shortcut flushes the pending write synchronously.
+  const draft = await page.evaluate(
+    () => JSON.parse(localStorage.getItem("python-learn-drafts-v2") || "{}").drafts?.["1"]
+  );
+  expect(draft).toBe(helloWorld);
+});
+
 test("core UI panels open without layout overflow", async ({ page }) => {
   await expect.poll(() => hasHorizontalOverflow(page)).toBe(false);
 

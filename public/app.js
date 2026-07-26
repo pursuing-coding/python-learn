@@ -1258,6 +1258,18 @@ function bindEvents() {
     }
   });
   document.addEventListener("keydown", (event) => {
+    // Ctrl/Cmd+S: muscle memory for "save" — persist the draft right away
+    // instead of opening the browser's save-page dialog.
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+      event.preventDefault();
+      if (focusModal.classList.contains("is-open")) {
+        codeEditor.value = focusEditor.value;
+      }
+      saveCurrentDraft();
+      flushDraftWrites();
+      return;
+    }
+
     if (event.key !== "Escape") return;
     if (focusModal.classList.contains("is-open")) {
       document.querySelector("#closeFocus").click();

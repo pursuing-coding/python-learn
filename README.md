@@ -3,7 +3,7 @@
 [![Version](https://img.shields.io/badge/version-1.0.0-3776ab.svg?style=flat-square)](https://github.com/pursuing-coding/python-learn/releases/tag/v1.0.0)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Web%20%7C%20Mobile-ffd43b.svg?style=flat-square)](#)
-[![Tests Status](https://img.shields.io/badge/tests-14%2F14%20passed-16a34a.svg?style=flat-square)](#)
+[![Tests Status](https://img.shields.io/badge/tests-20%2F20%20passed-16a34a.svg?style=flat-square)](#)
 
 面向 Python 从入门到进阶学习的**现代化浏览器课程实验室**。界面采用 **Azure-Amber（湖蓝-琥珀）** 专业配色与响应式玻璃摩登设计，集成课程阅读、代码编辑、实时运行、测试用例验证与进度追踪于一体的轻量级实验室系统。
 

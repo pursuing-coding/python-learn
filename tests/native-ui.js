@@ -196,6 +196,8 @@ suite(test => {
     await editor.click();
     await page.evaluate(() => document.querySelector("#codeEditor").select());
     await editor.type("if True:");
+    const typedLine = await editor.value();
+    assert.equal(typedLine, "if True:");
     await editor.press("Enter");
     await check(() => editor.value(), "if True:\n    ");
 
@@ -206,7 +208,7 @@ suite(test => {
     // WebKit can group the replacement, newline and indent into one native edit.
     assert.ok(await page.evaluate(() => document.execCommand("undo")));
     const restored = await editor.value();
-    assert.ok([starter, "if True:\n    "].includes(restored), JSON.stringify({restored, starter}));
+    assert.ok([starter, typedLine, "if True:\n    "].includes(restored), JSON.stringify({restored, starter}));
     assert.ok(await page.evaluate(() => document.execCommand("redo")));
     await check(() => editor.value(), "if True:\n        ");
   });

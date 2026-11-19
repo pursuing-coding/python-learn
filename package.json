@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "check": "node scripts/validate-lessons.js",
-    "smoke:ui": "playwright test",
+    "smoke:ui": "node --test tests/native-ui.js",
     "verify": "npm run check && npm run smoke:ui",
     "start": "node server.js",
     "preview": "node server.js"
@@ -15,6 +15,6 @@
     "node": ">=20"
   },
   "devDependencies": {
-    "@playwright/test": "^1.60.0"
+    "selenium-webdriver": "4.35.0"
   }
 }

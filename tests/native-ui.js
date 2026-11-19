@@ -199,6 +199,7 @@ suite(test => {
     await editor.press("Enter");
     await check(() => editor.value(), "if True:\n    ");
 
+    await page.evaluate(() => document.querySelector("#codeEditor").blur());
     await editor.press("Tab");
     await check(() => editor.value(), "if True:\n        ");
 

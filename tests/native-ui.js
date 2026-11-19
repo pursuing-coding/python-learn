@@ -205,7 +205,8 @@ suite(test => {
 
     // WebKit can group the replacement, newline and indent into one native edit.
     assert.ok(await page.evaluate(() => document.execCommand("undo")));
-    assert.ok([starter, "if True:\n    "].includes(await editor.value()));
+    const restored = await editor.value();
+    assert.ok([starter, "if True:\n    "].includes(restored), JSON.stringify({restored, starter}));
     assert.ok(await page.evaluate(() => document.execCommand("redo")));
     await check(() => editor.value(), "if True:\n        ");
   });

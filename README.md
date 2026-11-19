@@ -115,15 +115,12 @@ npm start
 ## 🚦 单元与 E2E 冒烟测试
 
 ```bash
-npx playwright install webkit
 npm run verify
 ```
 
 该校验将自动执行：
 1. **课程配置校验** (`scripts/validate-lessons.js`)：检测静态资源链接、字段完整性、初始/参考代码与测试用例的逻辑完整性；当本机存在 Python 解释器时，还会**真实执行全部参考答案**并逐一比对 52 个用例的期望输出。
-2. **多终端 UI 冒烟测试** (`tests/ui-smoke.spec.js`)：通过 Playwright 在本地默认运行 WebKit，在 CI 同时运行 WebKit 和 Chromium，覆盖桌面端与移动端的进度存储、草稿恢复、专注模式、测试用例切换、面板溢出等关键交互场景。
 
-> 💡 若本机安全策略禁止运行 Playwright 下载的 Chromium，可改用系统浏览器执行测试：`PLAYWRIGHT_CHANNEL=chrome npm run smoke:ui`（PowerShell 下先 `$env:PLAYWRIGHT_CHANNEL="chrome"`）。
 
 ---
 
@@ -140,10 +137,9 @@ npm run verify
 ├── scripts/
 │   └── validate-lessons.js # 自动化关卡校验脚本
 ├── tests/
-│   └── ui-smoke.spec.js # Playwright UI 冒烟测试脚本
+│   └── native-ui.js # Safari UI 冒烟测试脚本
 ├── server.js            # 本地 Python 执行 API 与静态服务器
 ├── package.json         # 项目元数据与脚本配置
-└── playwright.config.js # Playwright 测试框架配置
 ```
 
 ---
@@ -151,3 +147,5 @@ npm run verify
 ## 📄 开源许可证
 
 本项目基于 [MIT License](LICENSE) 协议开源。
+
+浏览器回归在 macOS 上使用系统 Safari，覆盖宽屏和窄屏布局。开启 Safari 开发者设置中的「允许远程自动化」后运行 `npm run verify`。

@@ -14,6 +14,10 @@ export function suite(register) {
       reload: () => driver.navigate().refresh(),
       mockRun: handler => { run = handler; },
       confirm: handler => { confirm = handler; },
+      async resize(w, h) {
+        const [dx, dy] = await page.evaluate(() => [outerWidth - innerWidth, outerHeight - innerHeight]);
+        await driver.manage().window().setRect({x: 0, y: 0, width: w + dx, height: h + dy});
+      },
       locator(selector, index = 0) {
         const elements = () => driver.findElements(By.css(selector));
         const element = async () => (await elements())[index];
@@ -72,14 +76,25 @@ export function suite(register) {
         await check(async () => (await fetch(appUrl)).ok, true);
         proxy = http.createServer(async (req, res) => {
           try {
-            if (req.url === "/api/run" && run) {
-              const body = [];
-              for await (const chunk of req) body.push(chunk);
-              res.setHeader("Content-Type", "application/json");
-              res.end(JSON.stringify(run(JSON.parse(Buffer.concat(body)))));
-              return;
+            const method = req.method;
+            const headers = {};
+            const contentType = req.headers["content-type"];
+            if (contentType) headers["content-type"] = contentType;
+            if (req.headers.origin) headers.origin = req.headers.origin === origin ? appUrl : req.headers.origin;
+
+            let body;
+            if (method === "POST") {
+              const chunks = [];
+              for await (const chunk of req) chunks.push(chunk);
+              body = Buffer.concat(chunks);
+              if (req.url === "/api/run" && run) {
+                const result = await run(JSON.parse(body));
+                res.setHeader("Content-Type", "application/json");
+                res.end(JSON.stringify(result));
+                return;
+              }
             }
-            const target = await fetch(new URL(req.url, appUrl));
+            const target = await fetch(new URL(req.url, appUrl), {method, headers, body});
             res.writeHead(target.status, {"Content-Type":target.headers.get("content-type") || "application/octet-stream"});
             res.end(Buffer.from(await target.arrayBuffer()));
           } catch (error) { res.writeHead(500); res.end(String(error)); }
@@ -88,8 +103,7 @@ export function suite(register) {
         origin = "http://127.0.0.1:" + proxy.address().port;
         service = new safari.ServiceBuilder("/usr/bin/safaridriver").build();
         driver = await new Builder().disableEnvironmentOverrides().usingServer(await service.start()).forBrowser("safari").build();
-        const [dx,dy] = await page.evaluate(() => [outerWidth-innerWidth, outerHeight-innerHeight]);
-        await driver.manage().window().setRect({x:0,y:0,width:width+dx,height:(width === 390 ? 844 : 980)+dy});
+        await page.resize(width, width === 390 ? 844 : 980);
       }
       run = confirm = undefined;
       await driver.get(origin);

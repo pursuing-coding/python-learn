@@ -3,7 +3,6 @@
 [![Version](https://img.shields.io/badge/version-1.0.0-3776ab.svg?style=flat-square)](https://github.com/pursuing-coding/python-learn/releases/tag/v1.0.0)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Web%20%7C%20Mobile-ffd43b.svg?style=flat-square)](#)
-[![Tests Status](https://img.shields.io/badge/tests-20%2F20%20passed-16a34a.svg?style=flat-square)](#)
 
 面向 Python 从零基础小白到独立开发者的**现代化浏览器课程实验室**（33 章 · 5 个 Level · 52 个可运行测试用例）。界面采用 **Azure-Amber（湖蓝-琥珀）** 专业配色与响应式玻璃摩登设计，集成课程阅读、代码编辑、实时运行、测试用例验证与进度追踪于一体的轻量级实验室系统。
 
@@ -23,10 +22,10 @@
 * 🔍 **零依赖 Python 语法高亮引擎**
   * 自主设计的正则词法解析引擎，无需外部库即可精准着色关键字、内建函数、装饰器、字符串、注释与数字。
 * ⚙️ **双轨代码执行通道**
-  * **本地模式**：优先由本地的 `python` / `python3` 解释器在隔离目录中执行（支持标准输入输出）。
-  * **云端模式**：当本地未安装解释器或发布为静态 Pages 时，自动回退到公开 Judge0 API（Python 3）完成远程安全容器化运行。
+  * **本地模式**：通过本机 Python 3.8+ 解释器在临时工作目录中执行，支持标准输入输出。
+  * **在线模式**：静态 Pages 使用 Judge0。本机开发时可手动选择「在线 Judge0」，此模式会将源码和标准输入发送给 Judge0。
 * 💾 **草稿与进度安全隔离**
-  * 代码草稿在本地自动持久化；标准输入（`stdin`）仅存在于内存，不写入本地缓存，保护隐私与代码干净度。
+  * 代码草稿和当前章节在本地自动保存。标准输入（`stdin`）只在当前页面保留。
 
 ---
 
@@ -108,7 +107,9 @@ npm install
 npm start
 ```
 * 服务启动后运行在：`http://localhost:4173`
-* 本地运行需要 `python` 或 `python3` 在环境变量中以启用本地执行。若未安装解释器，服务将以“有限教学预览模式”运行（可查阅全部教程并编辑代码，`print("...")` 会做简易模拟输出）。
+* 本地运行要求 `PATH` 中有 Python 3.8 或更高版本。未安装时可编辑代码并预览简单的 `print("...")`。验证和解锁课程需要 Python 解释器或手动选择「在线 Judge0」。
+* 本地运行服务使用启动服务的账户权限。请保持默认的本机监听，仅运行信任的代码。
+* 编辑器中，Tab 缩进，Shift+Tab 减少缩进。按 Esc 后再按 Tab 或 Shift+Tab 可移出编辑器。专注模式可按 Esc 返回。
 
 ---
 
@@ -119,7 +120,8 @@ npm run verify
 ```
 
 该校验将自动执行：
-1. **课程配置校验** (`scripts/validate-lessons.js`)：检测静态资源链接、字段完整性、初始/参考代码与测试用例的逻辑完整性；当本机存在 Python 解释器时，还会**真实执行全部参考答案**并逐一比对 52 个用例的期望输出。
+1. **课程配置校验**（`scripts/validate-lessons.js`）检查资源引用与课程字段，并以真实 Python 解释器逐一验证 52 个参考答案用例。
+2. **Safari 回归**（`tests/native-ui.js`）验证运行、提交、草稿和布局，其中包含通过本地 HTTP 服务执行 Python 的用例。
 
 
 ---

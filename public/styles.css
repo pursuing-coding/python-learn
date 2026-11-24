@@ -69,7 +69,6 @@ body {
 }
 
 body {
-  min-width: 1120px;
   background: var(--page-bg);
   color: var(--text);
   transition: background 0.3s, color 0.3s;
@@ -804,7 +803,7 @@ a:hover {
 
 .practice-column {
   display: grid;
-  grid-template-rows: minmax(355px, 1.15fr) minmax(205px, 0.48fr) 48px;
+  grid-template-rows: minmax(355px, 1.15fr) minmax(205px, 0.48fr) auto auto;
   gap: 12px;
   min-width: 0;
   min-height: 0;
@@ -829,13 +828,22 @@ a:hover {
 }
 
 
-.input-panel {
+.editor-panel,
+.input-panel,
+.console-panel {
   display: grid;
+}
+
+.editor-panel {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.input-panel {
   grid-template-rows: auto auto minmax(0, 1fr);
 }
 
 .console-panel {
-  position: relative;
+  grid-template-rows: auto minmax(0, 1fr) auto;
 }
 
 .panel-toolbar {
@@ -858,6 +866,11 @@ a:hover {
   align-items: center;
   gap: 9px;
   min-width: 0;
+}
+
+.editor-panel .panel-toolbar,
+.panel-toolbar .editor-actions {
+  flex-wrap: wrap;
 }
 
 .panel-toolbar em {
@@ -931,9 +944,12 @@ a:hover {
 }
 
 .code-surface {
+  --editor-font-size: 0.9rem;
+  --editor-padding-block: 20px;
+  --editor-padding-start: 18px;
+  --editor-padding-end: 22px;
   display: grid;
   grid-template-columns: 52px minmax(0, 1fr);
-  height: calc(100% - 42px);
   min-height: 0;
   overflow: hidden;
   background: var(--code-bg);
@@ -943,18 +959,16 @@ a:hover {
   height: 100%;
   margin: 0;
   overflow: hidden;
-  padding: 20px 10px 20px 0;
+  padding: var(--editor-padding-block) 10px var(--editor-padding-block) 0;
   border-right: 1px solid color-mix(in srgb, var(--line) 40%, transparent);
   background: color-mix(in srgb, var(--panel) 15%, transparent);
   color: var(--faint);
-  font: 0.9rem/1.65 "JetBrains Mono", Consolas, monospace;
+  font: var(--editor-font-size)/1.65 "JetBrains Mono", Consolas, monospace;
   text-align: right;
   user-select: none;
 }
 
-#codeEditor,
 #stdinInput,
-#focusEditor,
 #focusStdinInput {
   width: 100%;
   min-height: 0;
@@ -988,10 +1002,13 @@ a:hover {
   width: 100%;
   height: 100%;
   margin: 0;
-  font: 0.9rem/1.65 "JetBrains Mono", Consolas, monospace;
+  padding: var(--editor-padding-block) var(--editor-padding-end) var(--editor-padding-block) var(--editor-padding-start);
+  font: var(--editor-font-size)/1.65 "JetBrains Mono", Consolas, monospace;
   tab-size: 4;
-  white-space: pre-wrap;
-  word-break: break-word;
+  white-space: pre;
+  word-break: normal;
+  overflow-wrap: normal;
+  font-variant-ligatures: none;
   box-sizing: border-box;
 }
 
@@ -1000,7 +1017,6 @@ a:hover {
   background: transparent !important;
   color: transparent !important;
   caret-color: var(--code-text);
-  padding: 20px 22px 20px 18px;
   overflow: auto;
   border: 0;
   outline: 0;
@@ -1011,7 +1027,6 @@ a:hover {
   z-index: 1;
   background: var(--code-bg);
   color: var(--code-text);
-  padding: 20px 22px 20px 18px;
   overflow: hidden;
   pointer-events: none;
   border: 0;
@@ -1020,7 +1035,6 @@ a:hover {
 /* Syntax Highlighting Colors matching the Azure-Amber Python visual theme */
 .editor-highlight .hl-comment {
   color: #64748b;
-  font-style: italic;
 }
 
 .editor-highlight .hl-string {
@@ -1029,7 +1043,6 @@ a:hover {
 
 .editor-highlight .hl-decorator {
   color: #d97706;
-  font-weight: 600;
 }
 
 .editor-highlight .hl-builtin {
@@ -1038,12 +1051,10 @@ a:hover {
 
 .editor-highlight .hl-keyword {
   color: #ec4899;
-  font-weight: 600;
 }
 
 .editor-highlight .hl-self {
   color: #a855f7;
-  font-style: italic;
 }
 
 .editor-highlight .hl-number {
@@ -1052,6 +1063,7 @@ a:hover {
 
 #stdinInput {
   display: block;
+  grid-row: 3;
   height: 100%;
   padding: 14px 16px;
   font-size: 0.84rem;
@@ -1059,7 +1071,7 @@ a:hover {
 
 #consoleOutput {
   width: 100%;
-  height: calc(100% - 42px);
+  min-height: 0;
   margin: 0;
   scrollbar-color: var(--scrollbar-thumb) transparent;
   overflow: auto;
@@ -1071,9 +1083,8 @@ a:hover {
 }
 
 .run-meta {
-  position: absolute;
-  right: 16px;
-  bottom: 12px;
+  justify-self: end;
+  margin: 0 10px 8px;
   color: var(--faint);
   font-size: 0.72rem;
   font-weight: 600;
@@ -1157,6 +1168,28 @@ a:hover {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
   min-width: 0;
+}
+
+.runner-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.runner-controls select {
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+}
+
+#draftStatus {
+  color: var(--danger);
 }
 
 .submit-button {
@@ -1381,19 +1414,9 @@ a:hover {
 }
 
 .focus-code-surface {
-  height: 100%;
-}
-
-.focus-code-surface .editor-lines {
-  padding-top: 24px;
-  font-size: 0.94rem;
-  line-height: 1.65;
-}
-
-#focusEditor {
-  height: 100%;
-  padding: 24px 24px 24px 18px;
-  font-size: 0.94rem;
+  --editor-font-size: 0.94rem;
+  --editor-padding-block: 24px;
+  --editor-padding-end: 24px;
 }
 
 .focus-io-column {
@@ -1455,12 +1478,12 @@ a:hover {
   }
 
   .study-grid {
-    grid-template-columns: 182px minmax(320px, 0.58fr) minmax(600px, 1.42fr);
+    grid-template-columns: 182px minmax(250px, 0.64fr) minmax(0, 1.36fr);
     gap: 9px;
   }
 
   .practice-column {
-    grid-template-rows: minmax(320px, 1fr) minmax(190px, 0.46fr) 48px;
+    grid-template-rows: minmax(320px, 1fr) minmax(190px, 0.46fr) auto auto;
   }
 
   .lesson-article {
@@ -1475,10 +1498,6 @@ a:hover {
     min-height: 100%;
     overflow-x: hidden;
     overflow-y: auto;
-  }
-
-  body {
-    min-width: 0;
   }
 
   .training-app {
@@ -1522,7 +1541,7 @@ a:hover {
   }
 
   .practice-column {
-    grid-template-rows: minmax(300px, 42vh) auto 48px;
+    grid-template-rows: minmax(300px, 42vh) auto auto auto;
   }
 
   .io-grid {
@@ -1612,7 +1631,7 @@ a:hover {
   }
 
   .practice-column {
-    grid-template-rows: minmax(285px, 48vh) auto 48px;
+    grid-template-rows: minmax(285px, 48vh) auto auto auto;
     padding: 9px;
   }
 
@@ -1645,18 +1664,14 @@ a:hover {
   }
 
   .code-surface {
+    --editor-font-size: 0.84rem;
+    --editor-padding-block: 16px;
+    --editor-padding-start: 14px;
+    --editor-padding-end: 14px;
     grid-template-columns: 42px minmax(0, 1fr);
   }
 
-  .editor-lines,
-  .focus-code-surface .editor-lines {
-    padding-top: 16px;
-    font-size: 0.82rem;
-  }
-
-  #codeEditor,
-  #stdinInput,
-  #focusEditor {
+  #stdinInput {
     padding: 16px 14px;
     font-size: 0.84rem;
   }

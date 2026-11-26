@@ -96,12 +96,12 @@
           <div class="editor-panel">
             <div class="panel-toolbar">
               <span><b class="tool-mark">&gt;&gt;&gt;</b> Python 编辑器 <em>main.py</em></span>
-              <div>
+              <div class="editor-actions">
                 <button class="soft-button" id="focusCode" type="button">
                   <span class="button-glyph">↗</span>
                   专注代码
                 </button>
-                <button class="soft-button" id="showAnswer" type="button">
+                <button class="soft-button" id="showAnswer" type="button" aria-controls="answerDrawer" aria-expanded="false">
                   <span class="button-glyph">?</span>
                   查看答案
                 </button>
@@ -115,7 +115,7 @@
               <pre class="editor-lines" id="editorLines" aria-hidden="true">1</pre>
               <div class="editor-container">
                 <pre class="editor-highlight" id="editorHighlight" aria-hidden="true"></pre>
-                <textarea id="codeEditor" spellcheck="false" wrap="soft" aria-label="Python 代码编辑器"></textarea>
+                <textarea id="codeEditor" spellcheck="false" wrap="off" aria-label="Python 代码编辑器" aria-description="按 Esc 后可用 Tab 或 Shift+Tab 移出编辑器"></textarea>
               </div>
             </div>
           </div>
@@ -143,10 +143,19 @@
                 <button class="link-button" id="clearConsole" type="button">清空控制台</button>
               </div>
               <pre id="consoleOutput">Loaded: 1. Python 解释执行模型与第一个程序</pre>
-              <span id="runMeta" class="run-meta">等待运行</span>
+              <span id="runMeta" class="run-meta" role="status">等待运行</span>
             </div>
           </div>
 
+          <div class="runner-controls">
+            <label for="runnerMode">运行环境</label>
+            <select id="runnerMode" aria-describedby="runnerNotice">
+              <option value="local">本地 Python</option>
+              <option value="online">在线 Judge0</option>
+            </select>
+            <span id="runnerNotice"></span>
+            <span id="draftStatus" role="status"></span>
+          </div>
           <div class="submit-row">
             <button class="submit-button" id="submitTask" type="button">
               <span class="button-glyph">✓</span>
@@ -198,7 +207,7 @@
             <pre class="editor-lines" id="focusLines" aria-hidden="true">1</pre>
             <div class="editor-container">
               <pre class="editor-highlight" id="focusHighlight" aria-hidden="true"></pre>
-              <textarea id="focusEditor" spellcheck="false" wrap="soft" aria-label="专注模式 Python 代码编辑器"></textarea>
+              <textarea id="focusEditor" spellcheck="false" wrap="off" aria-label="专注模式 Python 代码编辑器"></textarea>
             </div>
           </div>
           <div class="focus-io-column">
@@ -212,7 +221,7 @@
             <div class="focus-console">
               <div class="focus-console-title">
                 <span>输出</span>
-                <span id="focusRunMeta">等待运行</span>
+                <span id="focusRunMeta" role="status">等待运行</span>
               </div>
               <pre id="focusOutput"></pre>
             </div>

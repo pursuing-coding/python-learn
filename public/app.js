@@ -12,12 +12,12 @@ const courseGroups = groupDefinitions
   .filter((group) => group.lessons.length > 0);
 
 const progressStorageKey = "python-learn-progress-v2";
-const draftStorageKey = "python-learn-drafts-v2";
+const legacyDraftStorageKey = "python-learn-drafts-v2";
+const resetStorageKey = "python-learn-reset-v3";
 const themeStorageKey = "python-learn-theme";
-const maxDraftLength = 30_000;
-const judge0Endpoint = "https://ce.judge0.com/submissions?base64_encoded=true&wait=true";
+const judge0Endpoint = "https://ce.judge0.com/submissions";
 const python3LanguageId = 71;
-const executionTimeoutMs = 45_000;
+const localRunnerAvailable = ["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname);
 const defaultSources = [
   { title: "Python 官方教程", url: "https://docs.python.org/zh-cn/3/tutorial/index.html" },
   { title: "Python 标准库参考", url: "https://docs.python.org/zh-cn/3/library/index.html" }
@@ -50,15 +50,24 @@ const focusRunMeta = document.querySelector("#focusRunMeta");
 const nextLessonButton = document.querySelector("#nextLesson");
 const testCaseList = document.querySelector("#testCaseList");
 const testSummary = document.querySelector("#testSummary");
+const runnerMode = document.querySelector("#runnerMode");
+const runnerNotice = document.querySelector("#runnerNotice");
+const draftStatus = document.querySelector("#draftStatus");
+const trainingApp = document.querySelector(".training-app");
+const focusCode = document.querySelector("#focusCode");
+const closeFocus = document.querySelector("#closeFocus");
+const mainRunButton = document.querySelector("#runCode");
+const focusRunButton = document.querySelector("#focusRun");
 
-let storedProgress = readStoredProgress();
+const storedProgress = readStoredProgress() ?? emptyProgress();
 let completedLessons = storedProgress.completedLessons;
 let passedTestCaseIdsByLessonId = storedProgress.passedTestCaseIdsByLessonId;
+let lastLessonId = storedProgress.lastLessonId;
+let progressResetId = storedProgress.resetId;
 let lessonDrafts = readStoredDrafts();
 let selectedTestCaseIdByLessonId = {};
 let currentLessonIndex = 0;
-let hasLoadedLesson = false;
-let isRunning = false;
+let activeRun = null;
 
 function getLessonKey(lesson) {
   return String(lesson?.id ?? "");
@@ -83,11 +92,19 @@ function normalizeCompletedCount(value) {
   return Math.max(0, Math.min(totalLessons, Math.floor(numeric)));
 }
 
+function emptyProgress(resetId = "") {
+  return { completedLessons: 0, lastLessonId: "", passedTestCaseIdsByLessonId: {}, resetId };
+}
+
 function readStoredProgress() {
+  let resetId = null;
   try {
+    resetId = localStorage.getItem(resetStorageKey);
     const raw = localStorage.getItem(progressStorageKey);
     if (raw) {
       const parsed = JSON.parse(raw);
+      const storedResetId = String(parsed.resetId ?? "");
+      if (resetId !== null && storedResetId !== resetId) return emptyProgress(resetId);
       const completedIds = Array.isArray(parsed.completedLessonIds)
         ? new Set(parsed.completedLessonIds.map(String))
         : new Set();
@@ -101,6 +118,8 @@ function readStoredProgress() {
         completedLessons: normalizeCompletedCount(
           completedIds.size > 0 ? completedCount : parsed.completedLessons
         ),
+        lastLessonId: String(parsed.lastLessonId ?? ""),
+        resetId: storedResetId,
         passedTestCaseIdsByLessonId:
           parsed.passedTestCaseIdsByLessonId && typeof parsed.passedTestCaseIdsByLessonId === "object"
             ? normalizePassedMap(parsed.passedTestCaseIdsByLessonId)
@@ -109,9 +128,10 @@ function readStoredProgress() {
     }
   } catch {
     // Ignore invalid localStorage payloads.
+    return resetId === null ? null : emptyProgress(resetId);
   }
 
-  return { completedLessons: 0, passedTestCaseIdsByLessonId: {} };
+  return emptyProgress(resetId ?? "");
 }
 
 function normalizePassedMap(value) {
@@ -125,7 +145,8 @@ function normalizePassedMap(value) {
       : Array.isArray(value[lesson.id])
         ? value[lesson.id]
         : [];
-    map[key] = rawIds.map(String).filter((id) => validIds.has(id));
+    const ids = rawIds.map(String).filter((id) => validIds.has(id));
+    if (ids.length) map[key] = ids;
   }
 
   return map;
@@ -140,39 +161,72 @@ function readStoredTheme() {
   }
 }
 
-function readStoredDrafts() {
+function draftKey(key, resetId = progressResetId) {
+  return `python-learn-draft-v3:${encodeURIComponent(resetId)}:${key}`;
+}
+
+function readLegacyDrafts() {
   try {
-    const raw = localStorage.getItem(draftStorageKey);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    const drafts = parsed?.drafts && typeof parsed.drafts === "object" ? parsed.drafts : {};
-    return Object.fromEntries(
-      Object.entries(drafts)
-        .filter(([lessonId, code]) => typeof lessonId === "string" && typeof code === "string")
-        .map(([lessonId, code]) => [lessonId, code.slice(0, maxDraftLength)])
-    );
+    // Migrate lazily: reading the old blob never risks overwriting a newer draft.
+    if (localStorage.getItem(resetStorageKey) !== null) return {};
+    return JSON.parse(localStorage.getItem(legacyDraftStorageKey))?.drafts ?? {};
   } catch {
     return {};
   }
 }
 
-function writeStoredDraftsNow() {
+function readStoredDraft(key, legacyDrafts = readLegacyDrafts()) {
   try {
-    localStorage.setItem(
-      draftStorageKey,
-      JSON.stringify({
-        drafts: lessonDrafts,
-        updatedAt: new Date().toISOString()
-      })
-    );
+    const raw = localStorage.getItem(draftKey(key));
+    const value = raw === null ? legacyDrafts[key] : JSON.parse(raw);
+    // An explicit null masks a legacy draft when the editor returns to starter code.
+    return typeof value === "string" ? value : undefined;
   } catch {
-    // localStorage can be disabled or full. The editor stays usable.
+    return undefined;
   }
 }
 
-// Drafts change on every keystroke; batch localStorage writes instead of
-// serializing the whole draft map per key press.
+function readStoredDrafts() {
+  const legacyDrafts = readLegacyDrafts();
+  return Object.fromEntries(lessons.flatMap((lesson) => {
+    const key = getLessonKey(lesson);
+    const value = readStoredDraft(key, legacyDrafts);
+    return value === undefined ? [] : [[key, value]];
+  }));
+}
+
+function writeStoredDraftsNow() {
+  if (!refreshStoredProgress()) return false;
+  const legacyDrafts = readLegacyDrafts();
+  const changed = [];
+  for (const key of dirtyDrafts) {
+    const value = lessonDrafts[key];
+    const previous = readStoredDraft(key, legacyDrafts);
+    try {
+      // Neither an unrelated lesson nor a newer reset epoch shares this key.
+      localStorage.setItem(draftKey(key), JSON.stringify(value ?? null));
+      dirtyDrafts.delete(key);
+      if (previous !== value) changed.push(key);
+    } catch {
+      // Keep the unsaved edit in memory and allow a later retry.
+    }
+  }
+  // A reset may have happened while the per-lesson write was in flight.
+  if (!refreshStoredProgress()) return false;
+  if (dirtyDrafts.size === 0) lessonDrafts = readStoredDrafts();
+  draftStatus.textContent = dirtyDrafts.size > 0 ? "浏览器未能保存草稿，请先复制代码再离开。" : "";
+  // A result belongs to the previously saved source, not to the new draft.
+  if (changed.some((key) => Object.hasOwn(passedTestCaseIdsByLessonId, key))) {
+    for (const key of changed) delete passedTestCaseIdsByLessonId[key];
+    writeStoredProgress();
+  }
+  renderPassedTestCases(getCurrentLesson());
+  return true;
+}
+
+// Drafts change on every keystroke; debounce localStorage writes.
 let draftWriteTimer = 0;
+const dirtyDrafts = new Set();
 
 function writeStoredDrafts() {
   window.clearTimeout(draftWriteTimer);
@@ -183,20 +237,46 @@ function writeStoredDrafts() {
 }
 
 function flushDraftWrites() {
-  if (!draftWriteTimer) return;
+  if (dirtyDrafts.size === 0) return true;
   window.clearTimeout(draftWriteTimer);
   draftWriteTimer = 0;
-  writeStoredDraftsNow();
+  return writeStoredDraftsNow();
+}
+
+// Rebase each write on storage, never on a tab's startup snapshot.
+function refreshStoredProgress(latest = readStoredProgress()) {
+  if (!latest) return true;
+  const completionChanged = completedLessons !== latest.completedLessons;
+  completedLessons = latest.completedLessons;
+  passedTestCaseIdsByLessonId = latest.passedTestCaseIdsByLessonId;
+  lastLessonId = latest.lastLessonId;
+  if (latest.resetId !== progressResetId) {
+    progressResetId = latest.resetId;
+    cancelRun();
+    discardPendingDraftWrites();
+    lessonDrafts = readStoredDrafts();
+    showProgressReset();
+    return false;
+  }
+  if (completionChanged) {
+    renderProgress();
+    renderLevels();
+  }
+  return true;
 }
 
 function writeStoredProgress() {
   try {
+    const resetId = localStorage.getItem(resetStorageKey);
+    if (resetId !== null && resetId !== progressResetId) return;
     localStorage.setItem(
       progressStorageKey,
       JSON.stringify({
         completedLessons,
         completedLessonIds: lessons.slice(0, completedLessons).map(getLessonKey),
+        lastLessonId,
         passedTestCaseIdsByLessonId,
+        resetId: progressResetId,
         updatedAt: new Date().toISOString()
       })
     );
@@ -415,7 +495,7 @@ function getQuestStates(lesson = getCurrentLesson()) {
   const passedCount = testCases.filter((testCase) => passedIds.has(testCase.id)).length;
 
   return {
-    modified: normalizeOutput(codeEditor.value) !== normalizeOutput(lesson.starterCode || ""),
+    modified: codeEditor.value !== (lesson.starterCode || ""),
     "first-pass": passedCount > 0,
     "all-pass": testCases.length > 0 && passedCount === testCases.length
   };
@@ -460,7 +540,7 @@ function renderLessonContent(lesson, displayIndex = currentLessonIndex) {
         <span class="difficulty-dot"></span>${escapeHtml(lesson.difficulty)}
       </span>
       <span class="fact-item">${lesson.estimatedMinutes} 分钟</span>
-      <span class="fact-item fact-status ${passedCount === testCases.length ? 'all-passed' : ''}">
+      <span class="fact-item fact-status ${passedCount === testCases.length ? 'all-passed' : ''}" id="lessonTestStatus">
         ${passedCount}/${testCases.length} 测试通过
       </span>
     </div>
@@ -620,52 +700,72 @@ function syncAnswerDrawerBounds() {
 }
 
 function getDraftForLesson(lesson) {
-  return typeof lessonDrafts[getLessonKey(lesson)] === "string" ? lessonDrafts[getLessonKey(lesson)] : "";
+  return lessonDrafts[getLessonKey(lesson)];
 }
 
-function setDraftForLesson(lesson, code) {
-  if (!lesson?.id) return;
+function saveCurrentDraft() {
+  const lesson = getCurrentLesson();
   const key = getLessonKey(lesson);
-  const value = String(code || "").slice(0, maxDraftLength);
+  const starter = lesson.starterCode || "";
+  const value = codeEditor.value;
+  if (value === (getDraftForLesson(lesson) ?? starter)) return;
 
-  if (value && value !== lesson.starterCode) {
+  if (value !== starter) {
     lessonDrafts[key] = value;
   } else {
     delete lessonDrafts[key];
   }
 
+  dirtyDrafts.add(key);
   writeStoredDrafts();
-  updateResetButtonState();
-}
-
-function saveCurrentDraft() {
-  setDraftForLesson(getCurrentLesson(), codeEditor.value);
+  if (Object.hasOwn(passedTestCaseIdsByLessonId, key)) {
+    delete passedTestCaseIdsByLessonId[key];
+    renderPassedTestCases(lesson);
+  } else {
+    updateQuestChecklist();
+    updateResetButtonState();
+  }
 }
 
 function hasSavedDrafts() {
   return Object.keys(lessonDrafts).length > 0;
 }
 
-function clearDrafts() {
-  lessonDrafts = {};
+function discardPendingDraftWrites() {
   // Cancel any pending debounced write so it cannot resurrect cleared drafts.
   window.clearTimeout(draftWriteTimer);
   draftWriteTimer = 0;
+  dirtyDrafts.clear();
+  draftStatus.textContent = "";
+}
+
+function clearDrafts(previousResetId) {
+  lessonDrafts = {};
+  discardPendingDraftWrites();
   try {
-    localStorage.removeItem(draftStorageKey);
+    localStorage.removeItem(legacyDraftStorageKey);
+    for (const lesson of lessons) localStorage.removeItem(draftKey(getLessonKey(lesson), previousResetId));
   } catch {
     // Ignore storage failures; in-memory state is already cleared.
   }
   updateResetButtonState();
 }
 
-function setProgress(nextCompletedLessons) {
-  completedLessons = normalizeCompletedCount(nextCompletedLessons);
+function showProgressReset() {
+  if (focusModal.classList.contains("is-open")) closeFocus.click();
+  selectedTestCaseIdByLessonId = {};
+  renderProgress();
+  loadLesson(0, false);
+  consoleOutput.textContent = `Progress reset.\nLoaded: 1. ${getCurrentLesson().title}`;
+  runMeta.textContent = "已重置";
+  runMeta.className = "run-meta status-warn";
+}
+
+function renderProgress() {
   const percent = totalLessons === 0 ? 0 : Math.round((completedLessons / totalLessons) * 100);
   progressText.textContent = `${completedLessons}/${totalLessons} 章`;
   progressPercent.textContent = percent === 100 ? "100% 🏆" : `${percent}%`;
   progressBar.style.width = `${percent}%`;
-  writeStoredProgress();
   updateResetButtonState();
 }
 
@@ -698,16 +798,18 @@ function hideNextLessonAction() {
   setNextLessonAction(-1);
 }
 
-function loadLesson(index) {
+function loadLesson(index, remember = true) {
+  if (remember && (!flushDraftWrites() || !refreshStoredProgress())) return;
   if (!lessons[index] || isLessonLocked(index)) return;
-  if (hasLoadedLesson) saveCurrentDraft();
+  cancelRun();
+  if (remember && dirtyDrafts.size === 0) lessonDrafts = readStoredDrafts();
 
   currentLessonIndex = index;
   const lesson = getCurrentLesson();
   const selected = getSelectedTestCase(lesson);
   const draft = getDraftForLesson(lesson);
 
-  codeEditor.value = draft || lesson.starterCode || "";
+  codeEditor.value = draft ?? lesson.starterCode ?? "";
   stdinInput.value = selected.stdin || "";
   syncEditorChrome(codeEditor, editorLines);
 
@@ -716,13 +818,16 @@ function loadLesson(index) {
   renderAnswerContent(lesson);
   renderTestCases(lesson);
   consoleOutput.textContent = `Loaded: ${index + 1}. ${lesson.title}`;
-  runMeta.textContent = draft ? "草稿已恢复" : "等待运行";
+  runMeta.textContent = draft !== undefined ? "草稿已恢复" : "等待运行";
   runMeta.className = "run-meta";
   setAnswerDrawer(false);
   hideNextLessonAction();
   syncAnswerDrawerBounds();
-  hasLoadedLesson = true;
   updateResetButtonState();
+  if (remember) {
+    lastLessonId = getLessonKey(lesson);
+    writeStoredProgress();
+  }
 }
 
 function setAnswerDrawer(open) {
@@ -730,10 +835,11 @@ function setAnswerDrawer(open) {
   answerDrawer.classList.toggle("is-open", open);
   answerDrawer.setAttribute("aria-hidden", open ? "false" : "true");
   showAnswer.classList.toggle("is-active", open);
-  showAnswer.setAttribute("aria-pressed", open ? "true" : "false");
+  showAnswer.setAttribute("aria-expanded", String(open));
   showAnswer.innerHTML = open
     ? '<span class="button-glyph">×</span> 隐藏答案'
     : '<span class="button-glyph">?</span> 查看答案';
+  if (!open && answerDrawer.contains(document.activeElement)) showAnswer.focus();
 }
 
 function setTheme(theme) {
@@ -808,38 +914,56 @@ function decodeBase64(value) {
   }
 }
 
-async function executeWithJudge0(code, stdin = "") {
-  const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), executionTimeoutMs);
+async function fetchJudge0Result(payload, signal) {
+  const response = await fetch(judge0Endpoint + "?base64_encoded=true&wait=false", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    signal,
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) throw new Error("在线运行服务提交失败 (HTTP " + response.status + ")。");
 
-  let response;
-  try {
-    response = await fetch(judge0Endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      signal: controller.signal,
-      body: JSON.stringify({
-        source_code: encodeBase64(code),
-        language_id: python3LanguageId,
-        stdin: encodeBase64(stdin)
-      })
+  const submission = await response.json();
+  // Some instances return an already completed result.
+  if (Number.isInteger(submission.status?.id) && submission.status.id > 2) return submission;
+  if (typeof submission.token !== "string" || !submission.token) {
+    throw new Error("在线运行服务没有返回提交令牌。");
+  }
+
+  const resultUrl = judge0Endpoint + "/" + encodeURIComponent(submission.token) + "?base64_encoded=true";
+  while (true) {
+    await new Promise((resolve, reject) => {
+      if (signal.aborted) {
+        reject(signal.reason);
+        return;
+      }
+      const abort = () => {
+        window.clearTimeout(timer);
+        reject(signal.reason);
+      };
+      const timer = window.setTimeout(() => {
+        signal.removeEventListener("abort", abort);
+        resolve();
+      }, 500);
+      signal.addEventListener("abort", abort, { once: true });
     });
-  } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") {
-      throw new Error("在线运行超时，请稍后重试");
+    const result = await fetch(resultUrl, { signal, cache: "no-store" });
+    if (!result.ok) throw new Error("在线运行服务查询失败 (HTTP " + result.status + ")。");
+    const data = await result.json();
+    if (!Number.isInteger(data.status?.id) || data.status.id < 1) {
+      throw new Error("在线运行服务返回了无效状态。");
     }
-    throw error;
-  } finally {
-    window.clearTimeout(timeoutId);
+    if (data.status.id > 2) return data;
   }
+}
 
-  if (!response.ok) {
-    throw new Error(`在线运行服务响应异常 (${response.status})`);
-  }
+async function executeWithJudge0(code, stdin, signal) {
+  const data = await fetchJudge0Result({
+    source_code: encodeBase64(code),
+    language_id: python3LanguageId,
+    stdin: encodeBase64(stdin)
+  }, signal);
 
-  const data = await response.json();
   const stdout = decodeBase64(data.stdout);
   const stderr = decodeBase64(data.stderr || data.message);
   const compileOutput = decodeBase64(data.compile_output);
@@ -852,133 +976,208 @@ async function executeWithJudge0(code, stdin = "") {
     compileOutput,
     exitCode: statusId === 3 ? 0 : statusId,
     statusDescription: data.status?.description || "Unknown",
-    durationMs: 0
+    durationMs: Math.round(Number(data.time) * 1000) || 0
   };
 }
 
-async function executeCode(code, stdin = "") {
-  const canUseBackend = ["localhost", "127.0.0.1"].includes(window.location.hostname);
-
-  if (canUseBackend) {
-    try {
-      const response = await fetch("api/run", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, stdin })
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        return {
-          status: result.status || "error",
-          stdout: result.stdout || "",
-          stderr: result.stderr || "",
-          compileOutput: result.compileOutput || "",
-          exitCode: result.exitCode ?? (result.status === "success" ? 0 : 1),
-          statusDescription: result.status || "local-runner",
-          durationMs: result.durationMs || 0
-        };
-      }
-    } catch {
-      // Fall through to the cloud runner when the local API is not reachable.
-    }
+async function executeLocally(code, stdin, signal) {
+  const response = await fetch("api/run", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    signal,
+    body: JSON.stringify({ code, stdin })
+  });
+  const result = await response.json();
+  if (typeof result?.status !== "string") {
+    throw new Error(`本地运行服务响应异常 (${response.status})`);
   }
-
-  return executeWithJudge0(code, stdin);
-}
-
-function renderRunResult(result, outputNode, metaNode) {
-  const combinedOutput = [result.compileOutput, result.stdout, result.stderr].filter(Boolean).join("\n");
-  outputNode.textContent = combinedOutput || "程序运行完成，但没有输出。";
-  metaNode.textContent = `${result.statusDescription || result.status} · ${result.durationMs || 0}ms`;
-  metaNode.className =
-    result.status === "success"
-      ? `${metaNode === runMeta ? "run-meta " : ""}status-success`
-      : result.status === "learning-preview" || result.status === "preview-limited"
-        ? `${metaNode === runMeta ? "run-meta " : ""}status-warn`
-        : `${metaNode === runMeta ? "run-meta " : ""}status-error`;
-}
-
-function markPassedTestCases(lesson, testCaseIds) {
-  if (testCaseIds.length === 0) return;
-  const key = getLessonKey(lesson);
-  const nextPassedIds = new Set(passedTestCaseIdsByLessonId[key] || []);
-  testCaseIds.forEach((testCaseId) => nextPassedIds.add(testCaseId));
-  passedTestCaseIdsByLessonId = {
-    ...passedTestCaseIdsByLessonId,
-    [key]: Array.from(nextPassedIds)
+  const preview = result.status === "learning-preview" || result.status === "preview-limited";
+  return {
+    status: result.status,
+    stdout: result.stdout || "",
+    stderr: preview
+      ? `${result.stderr || ""}\n安装 Python 或选择「在线 Judge0」后可提交验证。`.trim()
+      : result.stderr || "",
+    compileOutput: result.compileOutput || "",
+    durationMs: result.durationMs || 0
   };
+}
+
+async function executeCode(code, stdin, run) {
+  const online = run.mode === "online";
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  run.controller.signal.addEventListener("abort", abort, { once: true });
+  let timedOut = false;
+  const timeoutId = window.setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, online ? 45_000 : 15_000);
+
+  try {
+    return await (online ? executeWithJudge0 : executeLocally)(code, stdin, controller.signal);
+  } catch (error) {
+    if (timedOut) throw new Error(`${online ? "在线" : "本地"}运行请求超时，请稍后重试。`);
+    if (!online && !run.controller.signal.aborted) {
+      throw new Error("无法连接本地运行服务。请启动 npm start，或手动选择「在线 Judge0」。");
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+    run.controller.signal.removeEventListener("abort", abort);
+  }
+}
+
+function renderRunResult(result) {
+  const combinedOutput = [result.compileOutput, result.stdout, result.stderr].filter(Boolean).join("\n");
+  consoleOutput.textContent = combinedOutput || "程序运行完成，但没有输出。";
+  runMeta.textContent = `${result.statusDescription || result.status} · ${result.durationMs || 0}ms`;
+  runMeta.className =
+    result.status === "success"
+      ? "run-meta status-success"
+      : result.status === "learning-preview" || result.status === "preview-limited"
+        ? "run-meta status-warn"
+        : "run-meta status-error";
+}
+
+function updatePassedTestCases(lesson, testCaseIds) {
+  const key = getLessonKey(lesson);
+  const passedIds = new Set(testCaseIds);
+  if (passedIds.size > 0) passedTestCaseIdsByLessonId[key] = Array.from(passedIds);
+  else delete passedTestCaseIdsByLessonId[key];
   writeStoredProgress();
+  renderPassedTestCases(lesson);
+}
+
+function renderPassedTestCases(lesson) {
+  const passedIds = getPassedIds(lesson);
   renderTestCases(lesson);
-  renderLessonContent(lesson, currentLessonIndex);
+  const count = getTestCases(lesson).length;
+  const status = document.querySelector("#lessonTestStatus");
+  status.textContent = `${passedIds.size}/${count} 测试通过`;
+  status.classList.toggle("all-passed", passedIds.size === count);
+  updateQuestChecklist(lesson);
   updateResetButtonState();
 }
 
-function setRunning(nextRunning) {
-  isRunning = nextRunning;
-  document.querySelectorAll("#runCode, #submitTask, #focusRun").forEach((button) => {
-    button.disabled = nextRunning;
+function syncFocusOutput() {
+  if (!focusModal.classList.contains("is-open")) return;
+  focusOutput.textContent = consoleOutput.textContent;
+  focusRunMeta.textContent = runMeta.textContent;
+  focusRunMeta.className = runMeta.className.replace("run-meta", "").trim();
+}
+
+function setRunControls(running) {
+  document.querySelectorAll("#runCode, #submitTask, #focusRun, #runnerMode").forEach((control) => {
+    control.disabled = running;
   });
 }
 
-async function runCode(sourceEditor = codeEditor, outputNode = consoleOutput, metaNode = runMeta, inputNode = stdinInput) {
-  if (isRunning) return null;
+function startRun() {
+  if (activeRun || !refreshStoredProgress()) return null;
   saveCurrentDraft();
-  setRunning(true);
-  outputNode.textContent = "正在运行 Python 代码...";
-  metaNode.textContent = "运行中";
-  metaNode.className = metaNode === runMeta ? "run-meta" : "";
+  if (!flushDraftWrites()) return null;
+  activeRun = {
+    controller: new AbortController(), mode: runnerMode.value,
+    // If a draft could not be saved, keep the local run usable in memory.
+    unsavedDraft: dirtyDrafts.has(getLessonKey(getCurrentLesson()))
+  };
+  setRunControls(true);
+  return activeRun;
+}
+
+function matchesSavedSource(run, lesson, source) {
+  const saved = readStoredDraft(getLessonKey(lesson)) ?? lesson.starterCode ?? "";
+  return run.unsavedDraft || source === saved.replace(/\r\n?/g, "\n");
+}
+
+function finishRun(run) {
+  if (run !== activeRun) return;
+  activeRun = null;
+  setRunControls(false);
+}
+
+function cancelRun() {
+  if (!activeRun) return;
+  const run = activeRun;
+  finishRun(run);
+  run.controller.abort();
+}
+
+async function runCode(inputNode = stdinInput) {
+  const run = startRun();
+  if (!run) return null;
+  consoleOutput.textContent = "正在运行 Python 代码...";
+  runMeta.textContent = "运行中";
+  runMeta.className = "run-meta";
+  syncFocusOutput();
 
   const lesson = getCurrentLesson();
   const selected = getSelectedTestCase(lesson);
+  const code = codeEditor.value;
+  const stdin = inputNode.value;
 
   try {
-    const result = await executeCode(sourceEditor.value, inputNode.value);
-    renderRunResult(result, outputNode, metaNode);
+    const result = await executeCode(code, stdin, run);
+    if (activeRun !== run || !refreshStoredProgress()) return null;
+    renderRunResult(result);
+    const editedHere = code !== codeEditor.value;
+    if (editedHere || !matchesSavedSource(run, lesson, code)) {
+      consoleOutput.textContent += editedHere
+        ? "\n[代码已修改，此次结果未计入当前草稿]"
+        : "\n[本章草稿已在其他页面更新，请重新打开本章后再运行]";
+      runMeta.textContent = "code-changed";
+      runMeta.className = "run-meta status-warn";
+      return result;
+    }
 
-    const canCompare = normalizeOutput(inputNode.value) === normalizeOutput(selected.stdin);
+    const canCompare = stdin === (selected.stdin || "").replace(/\r\n?/g, "\n");
     if (result.status === "success" && canCompare && selected.expectedOutput) {
       const actual = normalizeOutput(result.stdout);
       const expected = normalizeOutput(selected.expectedOutput);
+      const passedIds = getPassedIds(lesson);
       if (actual === expected) {
-        markPassedTestCases(lesson, [selected.id]);
-        outputNode.textContent += `\n[测试用例通过: ${selected.title}]`;
+        passedIds.add(selected.id);
+        consoleOutput.textContent += `\n[测试用例通过: ${selected.title}]`;
       } else {
+        passedIds.delete(selected.id);
         const mismatchExplanation = explainOutputMismatch(result.stdout, selected.expectedOutput);
-        outputNode.textContent += `\n[输出未匹配预期]\n预期输出:\n${selected.expectedOutput}\n实际输出:\n${formatTerminalBlock(result.stdout, "(空输出)")}\n[排查提示]: ${mismatchExplanation}\n[本章提示]: ${lesson.hint}`;
-        metaNode.textContent = "output-mismatch";
-        metaNode.className = metaNode === runMeta ? "run-meta status-warn" : "status-warn";
+        consoleOutput.textContent += `\n[输出未匹配预期]\n预期输出:\n${selected.expectedOutput}\n实际输出:\n${formatTerminalBlock(result.stdout, "(空输出)")}\n[排查提示]: ${mismatchExplanation}\n[本章提示]: ${lesson.hint}`;
+        runMeta.textContent = "output-mismatch";
+        runMeta.className = "run-meta status-warn";
       }
+      updatePassedTestCases(lesson, passedIds);
     } else if (result.status === "success" && selected.expectedOutput) {
-      outputNode.textContent += `\n[当前标准输入已修改，未计入测试用例完成]\n当前测试用例输入应为:\n${formatTerminalBlock(selected.stdin, "(无标准输入)")}`;
-      metaNode.textContent = "custom-stdin";
-      metaNode.className = metaNode === runMeta ? "run-meta status-warn" : "status-warn";
+      consoleOutput.textContent += `\n[本次运行使用了自定义输入，未计入测试用例完成]\n测试用例输入应为:\n${formatTerminalBlock(selected.stdin, "(无标准输入)")}`;
+      runMeta.textContent = "custom-stdin";
+      runMeta.className = "run-meta status-warn";
     } else if (result.status !== "success" && result.status !== "learning-preview" && result.status !== "preview-limited") {
       const explanation = explainExecutionIssue([result.compileOutput, result.stderr].filter(Boolean).join("\n"));
-      if (explanation) outputNode.textContent += `\n[错误提示]: ${explanation}\n[本章提示]: ${lesson.hint}`;
+      if (explanation) consoleOutput.textContent += `\n[错误提示]: ${explanation}\n[本章提示]: ${lesson.hint}`;
     }
 
     return result;
   } catch (error) {
+    if (activeRun !== run) return null;
     const message = error instanceof Error ? error.message : String(error);
-    outputNode.textContent = `[执行错误]: ${message}`;
-    metaNode.textContent = "run-error";
-    metaNode.className = metaNode === runMeta ? "run-meta status-error" : "status-error";
+    consoleOutput.textContent = `[执行错误]: ${message}`;
+    runMeta.textContent = "run-error";
+    runMeta.className = "run-meta status-error";
     return null;
   } finally {
-    setRunning(false);
+    if (activeRun === run) syncFocusOutput();
+    finishRun(run);
   }
 }
 
 async function runAllTests(options = {}) {
-  if (isRunning) return false;
-  saveCurrentDraft();
-  setRunning(true);
+  const run = startRun();
+  if (!run) return false;
 
   const lesson = getCurrentLesson();
+  const lessonIndex = currentLessonIndex;
   const testCases = getTestCases(lesson);
   const sourceCode = codeEditor.value;
-  const nextPassedIds = new Set(passedTestCaseIdsByLessonId[getLessonKey(lesson)] || []);
   const passedThisRun = [];
   const lines = [`[运行本章全部测试: ${testCases.length} 个用例]`];
   let stoppedEarly = false;
@@ -992,8 +1191,16 @@ async function runAllTests(options = {}) {
       const testCase = testCases[index];
       lines.push("", `[${index + 1}/${testCases.length}] ${testCase.title}`);
       consoleOutput.textContent = lines.join("\n");
+      syncFocusOutput();
 
-      const result = await executeCode(sourceCode, testCase.stdin || "");
+      const result = await executeCode(sourceCode, testCase.stdin || "", run);
+      if (activeRun !== run) return false;
+      if (sourceCode !== codeEditor.value) {
+        consoleOutput.textContent += "\n[代码已修改，请重新提交当前草稿]";
+        runMeta.textContent = "code-changed";
+        runMeta.className = "run-meta status-warn";
+        return false;
+      }
 
       if (result.compileOutput) lines.push("[编译输出]", result.compileOutput);
       if (result.stderr) lines.push("[运行输出]", result.stderr);
@@ -1011,7 +1218,6 @@ async function runAllTests(options = {}) {
       const expected = normalizeOutput(testCase.expectedOutput);
 
       if (actual === expected) {
-        nextPassedIds.add(testCase.id);
         passedThisRun.push(testCase.id);
         lines.push(`[通过] ${testCase.title}`);
       } else {
@@ -1026,16 +1232,24 @@ async function runAllTests(options = {}) {
       }
     }
 
-    const passedCount = testCases.filter((testCase) => nextPassedIds.has(testCase.id)).length;
-    const allPassed = testCases.every((testCase) => nextPassedIds.has(testCase.id));
-    lines.push("", `[全测完成: 本次 ${passedThisRun.length}/${testCases.length} 通过，当前 ${passedCount}/${testCases.length} 通过]`);
+    if (!refreshStoredProgress()) return false;
+    if (!matchesSavedSource(run, lesson, sourceCode)) {
+      consoleOutput.textContent += "\n[本章草稿已在其他页面更新，请重新打开本章后再提交]";
+      runMeta.textContent = "code-changed";
+      runMeta.className = "run-meta status-warn";
+      return false;
+    }
+    const allPassed = passedThisRun.length === testCases.length;
+    const previousCompleted = completedLessons;
+    if (allPassed && options.submitAfter) completedLessons = Math.max(completedLessons, lessonIndex + 1);
+    lines.push("", `[全测完成: 本次 ${passedThisRun.length}/${testCases.length} 通过]`);
+    updatePassedTestCases(lesson, passedThisRun);
 
     if (allPassed) {
       lines.push("[本章全部测试通过]");
       if (options.submitAfter) {
-        const previousCompleted = completedLessons;
-        const nextCompleted = Math.max(completedLessons, currentLessonIndex + 1);
-        setProgress(nextCompleted);
+        const nextCompleted = completedLessons;
+        renderProgress();
         renderLevels();
         if (nextCompleted > previousCompleted && lessons[nextCompleted]) {
           lines.push(`Unlocked: ${nextCompleted + 1}. ${lessons[nextCompleted].title}`);
@@ -1054,22 +1268,22 @@ async function runAllTests(options = {}) {
       if (options.submitAfter) hideNextLessonAction();
     }
 
-    if (passedThisRun.length > 0) {
-      markPassedTestCases(lesson, passedThisRun);
-    }
-
     consoleOutput.textContent = lines.join("\n");
     return allPassed;
   } catch (error) {
+    if (activeRun !== run || !refreshStoredProgress()) return false;
     const message = error instanceof Error ? error.message : String(error);
     lines.push(`[执行错误]: ${message}`);
     consoleOutput.textContent = lines.join("\n");
     runMeta.textContent = "run-error";
     runMeta.className = "run-meta status-error";
-    if (passedThisRun.length > 0) markPassedTestCases(lesson, passedThisRun);
+    if (sourceCode === codeEditor.value && matchesSavedSource(run, lesson, sourceCode)) {
+      updatePassedTestCases(lesson, passedThisRun);
+    }
     return false;
   } finally {
-    setRunning(false);
+    if (activeRun === run) syncFocusOutput();
+    finishRun(run);
   }
 }
 
@@ -1141,12 +1355,22 @@ function autoIndentLine(textarea) {
 }
 
 function bindEditorShortcuts(textarea, runAction) {
+  let tabMovesFocus = false;
+  textarea.addEventListener("blur", () => { tabMovesFocus = false; });
   textarea.addEventListener("keydown", (event) => {
     // Never intercept keys while an IME is composing (e.g. typing Chinese
     // comments): Enter/Tab confirm the candidate instead of editing code.
     if (event.isComposing || event.keyCode === 229) return;
 
+    if (event.key === "Escape" && textarea === codeEditor) {
+      tabMovesFocus = true;
+      return;
+    }
     if (event.key === "Tab") {
+      if (tabMovesFocus) {
+        tabMovesFocus = false;
+        return;
+      }
       event.preventDefault();
       if (event.shiftKey) {
         outdentSelection(textarea);
@@ -1156,6 +1380,7 @@ function bindEditorShortcuts(textarea, runAction) {
       return;
     }
 
+    if (event.key !== "Shift") tabMovesFocus = false;
     if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
       event.preventDefault();
       runAction();
@@ -1179,6 +1404,12 @@ function bindEditorChrome(textarea, lineNode) {
   });
 }
 
+function updateRunnerNotice() {
+  runnerNotice.textContent = runnerMode.value === "online"
+    ? "源码和标准输入将发送至 Judge0。"
+    : "";
+}
+
 function bindEvents() {
   levelList.addEventListener("click", (event) => {
     const item = event.target.closest(".level-item");
@@ -1200,73 +1431,68 @@ function bindEvents() {
     renderTestCases(lesson);
   });
 
-  document.querySelector("#runCode").addEventListener("click", () => runCode());
+  mainRunButton.addEventListener("click", () => runCode());
   document.querySelector("#submitTask").addEventListener("click", () => runAllTests({ submitAfter: true }));
+  runnerMode.addEventListener("change", updateRunnerNotice);
 
-  codeEditor.addEventListener("input", () => {
-    syncEditorChrome(codeEditor, editorLines);
-    saveCurrentDraft();
-    updateQuestChecklist();
-  });
+  codeEditor.addEventListener("input", saveCurrentDraft);
 
-  document.querySelector("#focusCode").addEventListener("click", () => {
+  focusCode.addEventListener("click", () => {
     saveCurrentDraft();
+    setAnswerDrawer(false);
     focusEditor.value = codeEditor.value;
     focusStdinInput.value = stdinInput.value;
     syncEditorChrome(focusEditor, focusLines);
-    focusOutput.textContent = consoleOutput.textContent || "";
-    focusRunMeta.textContent = runMeta.textContent || "等待运行";
-    focusRunMeta.className = runMeta.className.replace("run-meta", "").trim();
     focusModal.classList.add("is-open");
     focusModal.setAttribute("aria-hidden", "false");
+    trainingApp.inert = true;
+    syncFocusOutput();
     focusEditor.focus();
   });
 
-  document.querySelector("#closeFocus").addEventListener("click", () => {
-    codeEditor.value = focusEditor.value;
-    stdinInput.value = focusStdinInput.value;
-    syncEditorChrome(codeEditor, editorLines);
-    saveCurrentDraft();
-    consoleOutput.textContent = focusOutput.textContent;
-    runMeta.textContent = focusRunMeta.textContent;
-    runMeta.className = `run-meta ${focusRunMeta.className || ""}`.trim();
+  closeFocus.addEventListener("click", () => {
+    trainingApp.inert = false;
+    focusCode.focus();
     focusModal.classList.remove("is-open");
     focusModal.setAttribute("aria-hidden", "true");
-    updateQuestChecklist();
   });
 
-  document.querySelector("#focusRun").addEventListener("click", () => {
-    codeEditor.value = focusEditor.value;
-    stdinInput.value = focusStdinInput.value;
-    syncEditorChrome(codeEditor, editorLines);
-    saveCurrentDraft();
-    runCode(focusEditor, focusOutput, focusRunMeta, focusStdinInput);
-  });
+  focusRunButton.addEventListener("click", () => runCode(focusStdinInput));
 
   bindEditorShortcuts(codeEditor, () => runCode());
-  bindEditorShortcuts(focusEditor, () => {
-    codeEditor.value = focusEditor.value;
-    stdinInput.value = focusStdinInput.value;
-    syncEditorChrome(codeEditor, editorLines);
-    saveCurrentDraft();
-    runCode(focusEditor, focusOutput, focusRunMeta, focusStdinInput);
-  });
+  bindEditorShortcuts(focusEditor, () => runCode(focusStdinInput));
   bindEditorChrome(codeEditor, editorLines);
   bindEditorChrome(focusEditor, focusLines);
+  focusEditor.addEventListener("input", () => {
+    codeEditor.value = focusEditor.value;
+    syncEditorChrome(codeEditor, editorLines);
+    saveCurrentDraft();
+  });
+  focusStdinInput.addEventListener("input", () => {
+    stdinInput.value = focusStdinInput.value;
+  });
 
   focusModal.addEventListener("click", (event) => {
-    if (event.target === focusModal) {
-      document.querySelector("#closeFocus").click();
+    if (event.target === focusModal) closeFocus.click();
+  });
+  focusModal.addEventListener("keydown", (event) => {
+    if (event.key !== "Tab" || event.defaultPrevented) return;
+    const firstControl = focusRunButton.disabled ? closeFocus : focusRunButton;
+    if (event.shiftKey && document.activeElement === firstControl) {
+      event.preventDefault();
+      focusStdinInput.focus();
+    } else if (!event.shiftKey && document.activeElement === focusStdinInput) {
+      event.preventDefault();
+      firstControl.focus();
     }
   });
+
   document.addEventListener("keydown", (event) => {
+    if (event.isComposing || event.keyCode === 229) return;
     // Ctrl/Cmd+S: muscle memory for "save" — persist the draft right away
     // instead of opening the browser's save-page dialog.
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
       event.preventDefault();
-      if (focusModal.classList.contains("is-open")) {
-        codeEditor.value = focusEditor.value;
-      }
       saveCurrentDraft();
       flushDraftWrites();
       return;
@@ -1274,7 +1500,7 @@ function bindEvents() {
 
     if (event.key !== "Escape") return;
     if (focusModal.classList.contains("is-open")) {
-      document.querySelector("#closeFocus").click();
+      closeFocus.click();
     } else if (answerDrawer.classList.contains("is-open")) {
       setAnswerDrawer(false);
     }
@@ -1288,6 +1514,7 @@ function bindEvents() {
   });
 
   document.querySelector("#clearConsole").addEventListener("click", () => {
+    cancelRun();
     consoleOutput.textContent = "";
     runMeta.textContent = "已清空";
     runMeta.className = "run-meta";
@@ -1305,23 +1532,23 @@ function bindEvents() {
   });
 
   resetProgress.addEventListener("click", () => {
-    if (!resetProgress.disabled && !window.confirm("确认重置学习进度？")) return;
+    if (resetProgress.disabled || !window.confirm("确认重置学习进度？")) return;
+    cancelRun();
 
-    try {
-      localStorage.removeItem(progressStorageKey);
-    } catch {
-      // Ignore storage failures; in-memory reset still proceeds.
-    }
-    clearDrafts();
+    const previousResetId = readStoredProgress()?.resetId ?? progressResetId;
     passedTestCaseIdsByLessonId = {};
     completedLessons = 0;
-    selectedTestCaseIdByLessonId = {};
-    hasLoadedLesson = false;
-    setProgress(0);
-    loadLesson(0);
-    consoleOutput.textContent = `Progress reset.\nLoaded: 1. ${getCurrentLesson().title}`;
-    runMeta.textContent = "已重置";
-    runMeta.className = "run-meta";
+    lastLessonId = "";
+    // Publish the epoch independently: an in-flight progress write cannot roll it back.
+    progressResetId = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+    try {
+      localStorage.setItem(resetStorageKey, progressResetId);
+    } catch {
+      // The reset still clears this tab's in-memory state.
+    }
+    clearDrafts(previousResetId);
+    writeStoredProgress();
+    showProgressReset();
   });
 
   themeToggle.addEventListener("click", () => {
@@ -1331,6 +1558,13 @@ function bindEvents() {
   });
 
   window.addEventListener("resize", syncAnswerDrawerBounds);
+  window.addEventListener("storage", (event) => {
+    if (event.key !== progressStorageKey && event.key !== resetStorageKey && event.key !== null) return;
+    const latest = readStoredProgress();
+    if (latest && refreshStoredProgress(latest) && dirtyDrafts.size === 0 && !activeRun) {
+      renderPassedTestCases(getCurrentLesson());
+    }
+  });
   // Persist any pending debounced draft before the page unloads or is hidden.
   window.addEventListener("pagehide", flushDraftWrites);
   document.addEventListener("visibilitychange", () => {
@@ -1346,8 +1580,12 @@ function boot() {
 
   completedLessons = normalizeCompletedCount(completedLessons);
   setTheme(readStoredTheme());
-  setProgress(completedLessons);
-  loadLesson(0);
+  runnerMode.options[0].disabled = !localRunnerAvailable;
+  runnerMode.value = localRunnerAvailable ? "local" : "online";
+  updateRunnerNotice();
+  renderProgress();
+  const savedIndex = lessons.findIndex((lesson) => getLessonKey(lesson) === storedProgress.lastLessonId);
+  loadLesson(savedIndex >= 0 && !isLessonLocked(savedIndex) ? savedIndex : 0, false);
   bindEvents();
   syncAnswerDrawerBounds();
 }

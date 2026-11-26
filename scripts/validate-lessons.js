@@ -53,13 +53,18 @@ if (lessons.length !== 33) {
 function findPython() {
   for (const command of [process.env.PYTHON, "python3", "python", "py"].filter(Boolean)) {
     const probe = spawnSync(command, ["--version"], { encoding: "utf8", timeout: 5_000 });
-    if (probe.status === 0) return command;
+    const version = [probe.stdout, probe.stderr].filter(Boolean).join("\n").trim();
+    const match = version.match(/^Python 3\.(\d+)/);
+    if (probe.status === 0 && match && Number(match[1]) >= 8) return command;
   }
   return null;
 }
 
 const pythonCommand = findPython();
 if (!pythonCommand) {
+  if (process.argv.includes("--require-python")) {
+    throw new Error("Python 3.8 or later is required to verify the lesson answers.");
+  }
   console.log("No local Python interpreter found; skipping answer-output verification.");
 }
 

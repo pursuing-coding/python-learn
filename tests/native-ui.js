@@ -32,7 +32,37 @@ async function addLessonFrame(page, id) {
     ?.querySelectorAll(".level-item").length, id), 33);
 }
 
-suite(test => {
+suite((test, width) => {
+  test("core UI panels open without layout overflow", async ({ page }) => {
+    await check(() => hasHorizontalOverflow(page), false);
+    await check(() => page.evaluate(() => {
+      const button = document.querySelector("#runCode");
+      const bounds = button.getBoundingClientRect();
+      return bounds.left >= 0 && bounds.right <= button.closest(".panel-toolbar").getBoundingClientRect().right && bounds.right <= innerWidth;
+    }), true);
+
+    const layersMatch = (editor, highlight) => {
+      const input = getComputedStyle(document.querySelector(editor));
+      const overlay = getComputedStyle(document.querySelector(highlight));
+      return ["fontSize", "lineHeight", "paddingTop", "paddingLeft", "whiteSpace"].every(key => input[key] === overlay[key]);
+    };
+    await check(() => page.evaluate(layersMatch, "#codeEditor", "#editorHighlight"), true);
+
+    await page.locator("#showAnswer").click();
+    await check(() => page.locator("#answerDrawer").attribute("class"), /is-open/);
+    await check(() => hasHorizontalOverflow(page), false);
+    await page.locator("#closeAnswer").click();
+    await check(() => page.locator("#answerDrawer").attribute("class"), /is-open/, "notMatch");
+
+    await page.locator("#focusCode").click();
+    await check(() => page.locator("#focusModal").attribute("class"), /is-open/);
+    await check(() => hasHorizontalOverflow(page), false);
+    await check(() => page.evaluate(layersMatch, "#focusEditor", "#focusHighlight"), true);
+    await page.locator("#closeFocus").click();
+    await check(() => page.locator("#focusModal").attribute("class"), /is-open/, "notMatch");
+  });
+
+  if (width === 1024) return;
   test("overlapping saves preserve drafts from different chapters", async ({ page }) => {
     await page.evaluate(() => {
       localStorage.setItem("python-learn-progress-v2", JSON.stringify({ completedLessons: 2 }));
@@ -590,34 +620,5 @@ suite(test => {
     assert.deepEqual(draft, helloWorld);
   });
 
-  test("core UI panels open without layout overflow", async ({ page }) => {
-    const originalWidth = await page.evaluate(() => innerWidth);
-    if (originalWidth > 1100) await page.resize(1024, 980);
-    await check(() => hasHorizontalOverflow(page), false);
-    await check(() => page.evaluate(() => {
-      const button = document.querySelector("#runCode");
-      const bounds = button.getBoundingClientRect();
-      return bounds.left >= 0 && bounds.right <= button.closest(".panel-toolbar").getBoundingClientRect().right && bounds.right <= innerWidth;
-    }), true);
 
-    const layersMatch = (editor, highlight) => {
-      const input = getComputedStyle(document.querySelector(editor));
-      const overlay = getComputedStyle(document.querySelector(highlight));
-      return ["fontSize", "lineHeight", "paddingTop", "paddingLeft", "whiteSpace"].every(key => input[key] === overlay[key]);
-    };
-    await check(() => page.evaluate(layersMatch, "#codeEditor", "#editorHighlight"), true);
-
-    await page.locator("#showAnswer").click();
-    await check(() => page.locator("#answerDrawer").attribute("class"), /is-open/);
-    await check(() => hasHorizontalOverflow(page), false);
-    await page.locator("#closeAnswer").click();
-    await check(() => page.locator("#answerDrawer").attribute("class"), /is-open/, "notMatch");
-
-    await page.locator("#focusCode").click();
-    await check(() => page.locator("#focusModal").attribute("class"), /is-open/);
-    await check(() => hasHorizontalOverflow(page), false);
-    await check(() => page.evaluate(layersMatch, "#focusEditor", "#focusHighlight"), true);
-    await page.locator("#closeFocus").click();
-    await check(() => page.locator("#focusModal").attribute("class"), /is-open/, "notMatch");
-  });
 });

@@ -3,9 +3,11 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { request } from "node:http";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 
 async function startServer(t, host = "127.0.0.1") {
   const child = spawn(process.execPath, ["server.js"], {
+    cwd: fileURLToPath(new URL("../", import.meta.url)),
     env: { ...process.env, HOST: host, PORT: "0" },
     stdio: ["ignore", "pipe", "pipe"]
   });

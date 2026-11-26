@@ -15,7 +15,7 @@ const progressStorageKey = "python-learn-progress-v2";
 const legacyDraftStorageKey = "python-learn-drafts-v2";
 const resetStorageKey = "python-learn-reset-v3";
 const themeStorageKey = "python-learn-theme";
-const judge0Endpoint = "https://ce.judge0.com/submissions?base64_encoded=true&wait=true";
+const judge0Endpoint = "https://ce.judge0.com/submissions";
 const python3LanguageId = 71;
 const localRunnerAvailable = ["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname);
 const defaultSources = [
@@ -914,22 +914,56 @@ function decodeBase64(value) {
   }
 }
 
-async function executeWithJudge0(code, stdin, signal) {
-  const response = await fetch(judge0Endpoint, {
+async function fetchJudge0Result(payload, signal) {
+  const response = await fetch(judge0Endpoint + "?base64_encoded=true&wait=false", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     signal,
-    body: JSON.stringify({
-      source_code: encodeBase64(code),
-      language_id: python3LanguageId,
-      stdin: encodeBase64(stdin)
-    })
+    body: JSON.stringify(payload)
   });
-  if (!response.ok) {
-    throw new Error(`在线运行服务响应异常 (${response.status})`);
+  if (!response.ok) throw new Error("在线运行服务提交失败 (HTTP " + response.status + ")。");
+
+  const submission = await response.json();
+  // Some instances return an already completed result.
+  if (Number.isInteger(submission.status?.id) && submission.status.id > 2) return submission;
+  if (typeof submission.token !== "string" || !submission.token) {
+    throw new Error("在线运行服务没有返回提交令牌。");
   }
 
-  const data = await response.json();
+  const resultUrl = judge0Endpoint + "/" + encodeURIComponent(submission.token) + "?base64_encoded=true";
+  while (true) {
+    await new Promise((resolve, reject) => {
+      if (signal.aborted) {
+        reject(signal.reason);
+        return;
+      }
+      const abort = () => {
+        window.clearTimeout(timer);
+        reject(signal.reason);
+      };
+      const timer = window.setTimeout(() => {
+        signal.removeEventListener("abort", abort);
+        resolve();
+      }, 500);
+      signal.addEventListener("abort", abort, { once: true });
+    });
+    const result = await fetch(resultUrl, { signal, cache: "no-store" });
+    if (!result.ok) throw new Error("在线运行服务查询失败 (HTTP " + result.status + ")。");
+    const data = await result.json();
+    if (!Number.isInteger(data.status?.id) || data.status.id < 1) {
+      throw new Error("在线运行服务返回了无效状态。");
+    }
+    if (data.status.id > 2) return data;
+  }
+}
+
+async function executeWithJudge0(code, stdin, signal) {
+  const data = await fetchJudge0Result({
+    source_code: encodeBase64(code),
+    language_id: python3LanguageId,
+    stdin: encodeBase64(stdin)
+  }, signal);
+
   const stdout = decodeBase64(data.stdout);
   const stderr = decodeBase64(data.stderr || data.message);
   const compileOutput = decodeBase64(data.compile_output);
@@ -1237,13 +1271,15 @@ async function runAllTests(options = {}) {
     consoleOutput.textContent = lines.join("\n");
     return allPassed;
   } catch (error) {
-    if (activeRun !== run) return false;
+    if (activeRun !== run || !refreshStoredProgress()) return false;
     const message = error instanceof Error ? error.message : String(error);
     lines.push(`[执行错误]: ${message}`);
     consoleOutput.textContent = lines.join("\n");
     runMeta.textContent = "run-error";
     runMeta.className = "run-meta status-error";
-    if (sourceCode === codeEditor.value) updatePassedTestCases(lesson, passedThisRun);
+    if (sourceCode === codeEditor.value && matchesSavedSource(run, lesson, sourceCode)) {
+      updatePassedTestCases(lesson, passedThisRun);
+    }
     return false;
   } finally {
     if (activeRun === run) syncFocusOutput();
@@ -1478,6 +1514,7 @@ function bindEvents() {
   });
 
   document.querySelector("#clearConsole").addEventListener("click", () => {
+    cancelRun();
     consoleOutput.textContent = "";
     runMeta.textContent = "已清空";
     runMeta.className = "run-meta";
@@ -1524,7 +1561,9 @@ function bindEvents() {
   window.addEventListener("storage", (event) => {
     if (event.key !== progressStorageKey && event.key !== resetStorageKey && event.key !== null) return;
     const latest = readStoredProgress();
-    if (latest && latest.resetId !== progressResetId) refreshStoredProgress(latest);
+    if (latest && refreshStoredProgress(latest) && dirtyDrafts.size === 0 && !activeRun) {
+      renderPassedTestCases(getCurrentLesson());
+    }
   });
   // Persist any pending debounced draft before the page unloads or is hidden.
   window.addEventListener("pagehide", flushDraftWrites);

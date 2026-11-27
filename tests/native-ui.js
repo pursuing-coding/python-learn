@@ -357,11 +357,13 @@ suite((test, width) => {
   test("does not attach a stale run result to another tab's replacement draft", async ({ page }) => {
     let pendingReply;
     await mockPythonRunner(page, () => new Promise(resolve => { pendingReply = resolve; }));
-    await addLessonFrame(page, "replacementEditor");
     await page.locator("#codeEditor").fill(helloWorld);
     await page.locator("#submitTask").click();
     try {
       await check(() => typeof pendingReply, "function");
+      // The second editor must start from the submitted revision. An editor
+      // opened before that save creates a conflict copy instead of replacing it.
+      await addLessonFrame(page, "replacementEditor");
       const newerDraft = "# replacement from another tab";
       await page.evaluate(draft => {
         const other = document.getElementById("replacementEditor").contentWindow;
@@ -728,7 +730,7 @@ suite((test, width) => {
     await check(() => page.evaluate(() => document.activeElement.id === "codeEditor"), false);
     await check(() => editor.value(), starter);
 
-    await page.locator("#focusCode").click();
+    await page.locator("#focusCode").press("Enter");
     await check(() => page.evaluate(() => document.activeElement.id), "codeEditor");
     await page.press("F6");
     await check(() => page.evaluate(() => document.activeElement.id), "stdinInput");

@@ -4,7 +4,7 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Web%20%7C%20Mobile-ffd43b.svg?style=flat-square)](#)
 
-面向 Python 从零基础小白到独立开发者的**现代化浏览器课程实验室**（33 章 · 5 个 Level · 52 个可运行测试用例）。界面采用 **Azure-Amber（湖蓝-琥珀）** 专业配色与响应式玻璃摩登设计，集成课程阅读、代码编辑、实时运行、测试用例验证与进度追踪于一体的轻量级实验室系统。
+从第一个 `print()` 学到用命令解析、文件与测试完成小项目。课程共 33 章，配有 67 个可运行用例，可在浏览器里写代码、验证输出并保存学习进度。
 
 🔗 **[在线立即体验实验室 🚀](https://pursuing-coding.github.io/python-learn/)**  
 🔗 **[GitHub 仓库源码](https://github.com/pursuing-coding/python-learn)**
@@ -37,7 +37,7 @@
 
 | 章节 | 课题 | 核心学习目标 |
 | :--- | :--- | :--- |
-| **01** | 解释执行模型与第一个程序 | 理解解释器/字节码，使用 `print()` 输出 |
+| **01** | 写下第一个 Python 程序 | 用 `print()` 输出文字，运行并验证练习 |
 | **02** | 变量、动态类型与内建类型 | 动态类型绑定、`type()` 与多参数打印 |
 | **03** | 数字与运算符 | `/` 真除与 `//` 整除、`%`、`**`、`int(input())` |
 | **04** | 字符串入门：索引、切片与转义 | 下标/负数下标、切片、`len()`、`in`、转义字符 |
@@ -91,6 +91,10 @@
 | **32** | 综合实战三：学生成绩分析器 | 记录解析、统计聚合、排行输出 |
 | **33** | 毕业项目：银行账户系统 | 类封装 + 自定义异常 + 命令循环的完整小系统 |
 
+### 下载待办清单项目
+
+[下载 ZIP](public/downloads/python-todo-cli.zip)。解压后在项目目录执行 `python3 todo.py add "复习 Python"`，再用 `python3 todo.py list` 查看结果。需要 Python 3.8 或更新版本，使用标准库即可。压缩包里有运行说明和测试。
+
 ---
 
 ## 🛠️ 本地开发与部署
@@ -109,7 +113,9 @@ npm start
 * 服务启动后运行在：`http://localhost:4173`
 * 本地运行要求 `PATH` 中有 Python 3.8 或更高版本。未安装时可编辑代码并预览简单的 `print("...")`。验证和解锁课程需要 Python 解释器或手动选择「在线 Judge0」。
 * 本地运行服务使用启动服务的账户权限。请保持默认的本机监听，仅运行信任的代码。
-* 编辑器中，Tab 缩进，Shift+Tab 减少缩进。按 Esc 后再按 Tab 或 Shift+Tab 可移出编辑器。专注模式可按 Esc 返回。
+* 编辑器中，Tab 缩进，Shift+Tab 减少缩进。按 Esc 后再按 Tab 或 Shift+Tab 可移出编辑器。专注模式可按 Esc 返回。按 F6 可在代码与标准输入之间切换。
+* 判题比较标准输出，允许固定文本末尾有一个换行，保留空格、空行等其余格式。发生错误时，可从控制台跳到代码行。
+* 同一章在多个标签页编辑时，会保留可载入的草稿副本。浏览器无法写入共享草稿时，可下载当前代码。
 
 ---
 
@@ -120,8 +126,11 @@ npm run verify
 ```
 
 该校验将自动执行：
-1. **课程配置校验**（`scripts/validate-lessons.js`）检查资源引用与课程字段，并以真实 Python 解释器逐一验证 52 个参考答案用例。
-2. **Safari 回归**（`tests/native-ui.js`）验证运行、提交、草稿和布局，其中包含通过本地 HTTP 服务执行 Python 的用例。
+1. **课程和下载项目**。验证 67 个样例，并从发布用的 ZIP 解压运行实战项目测试。
+2. **判题和本地服务**。验证输出比较、错误定位和本地运行接口。
+3. **Safari 回归**。验证运行、提交、草稿和布局，其中包含通过本地 HTTP 服务执行 Python 的用例。
+
+更新项目源码后，用 `python3 scripts/package-project.py` 重新生成下载包。
 
 
 ---
@@ -150,4 +159,6 @@ npm run verify
 
 本项目基于 [MIT License](LICENSE) 协议开源。
 
-浏览器回归在 macOS 上使用系统 Safari，覆盖宽屏和窄屏布局。开启 Safari 开发者设置中的「允许远程自动化」后运行 `npm run verify`。
+浏览器回归在 macOS 上使用系统 Safari。开启 Safari 开发者设置中的「允许远程自动化」后运行 `npm run verify`。三个窗口尺寸共用一个 WebDriver 会话，每个用例单独清理练习数据。
+
+如果 Safari 27 创建会话超时，且系统日志显示 `Safari was not launched for automation`，保存浏览器中的工作，用 ⌘Q 正常退出 Safari，再运行验证命令。SafariDriver 会自行启动自动化窗口。测试结束后可照常打开 Safari。

@@ -8,6 +8,12 @@ async function hasHorizontalOverflow(page) {
   return page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 2);
 }
 
+async function openChapter(page, index) {
+  const toggle = page.locator("#toggleChapters");
+  if (await toggle.visible() && await toggle.attribute("aria-expanded") === "false") await toggle.click();
+  await page.locator(".level-item").nth(index).click();
+}
+
 async function mockPythonRunner(page, resolver) {
   page.mockRun(async payload => {
     const stdout = await resolver(payload);
@@ -57,10 +63,21 @@ suite((test, width) => {
     await page.locator("#focusCode").click();
     await check(() => page.locator("#focusModal").attribute("class"), /is-open/);
     await check(() => hasHorizontalOverflow(page), false);
-    await check(() => page.evaluate(layersMatch, "#focusEditor", "#focusHighlight"), true);
+    await check(() => page.evaluate(layersMatch, "#focusModal #codeEditor", "#focusModal #editorHighlight"), true);
     await page.locator("#closeFocus").click();
     await check(() => page.locator("#focusModal").attribute("class"), /is-open/, "notMatch");
   });
+
+  if (width === 390) {
+    test("mobile learners can open the chapter list and jump to the editor", async ({ page }) => {
+      await check(() => page.locator(".level-item").visible(), false);
+      await openChapter(page, 0);
+      await check(() => page.locator(".level-item").visible(), false);
+      await page.locator(".practice-jump").click();
+      await check(() => page.evaluate(() => location.hash), "#practice");
+      await check(() => page.evaluate(() => document.querySelector("#codeEditor").getBoundingClientRect().top < innerHeight), true);
+    });
+  }
 
   if (width === 1024) return;
   test("overlapping saves preserve drafts from different chapters", async ({ page }) => {
@@ -99,9 +116,9 @@ suite((test, width) => {
     assert.equal(interleaved, true, "the second write ran inside the first save");
 
     await page.reload();
-    await page.locator(".level-item").nth(0).click();
+    await openChapter(page, 0);
     assert.equal(await page.locator("#codeEditor").value(), "# draft in chapter 1");
-    await page.locator(".level-item").nth(1).click();
+    await openChapter(page, 1);
     assert.equal(await page.locator("#codeEditor").value(), "# draft in chapter 2");
   });
 
@@ -150,20 +167,66 @@ suite((test, width) => {
     });
     await page.reload();
     assert.equal(await page.locator("#codeEditor").value(), "# old draft");
-    await page.locator(".level-item").nth(1).click();
+    await openChapter(page, 1);
     assert.equal(await page.locator("#codeEditor").value(), "");
-    await page.locator(".level-item").nth(0).click();
+    await openChapter(page, 0);
     await page.locator("#codeEditor").fill(starter);
     await page.press("Control+s");
     await page.reload();
     assert.equal(await page.locator("#codeEditor").value(), starter);
     assert.equal(await page.locator("#runMeta").text(), "等待运行");
   });
+
+  test("keeps both versions when the same lesson is saved in two pages", async ({ page }) => {
+    await addLessonFrame(page, "otherDraft");
+    await page.evaluate(() => {
+      const second = document.getElementById("otherDraft").contentWindow;
+      function edit(win, value) {
+        const editor = win.document.querySelector("#codeEditor");
+        editor.value = value;
+        editor.dispatchEvent(new win.Event("input", { bubbles: true }));
+        win.document.dispatchEvent(new win.KeyboardEvent("keydown", { key: "s", ctrlKey: true, bubbles: true }));
+      }
+      edit(window, "# first draft");
+      edit(second, "# second draft");
+    });
+    await check(() => page.locator("#draftRecovery").visible(), true);
+    await page.locator("#restoreDraft").click();
+    await check(() => page.locator("#codeEditor").value(), "# second draft");
+  });
+
   test("runs Python through the local HTTP server", async ({ page }) => {
     await page.locator("#codeEditor").fill(helloWorld);
     await page.locator("#runCode").click();
     await check(() => page.locator("#consoleOutput").text(), "Hello, Python World!", "contains");
     await check(() => page.locator("#consoleOutput").text(), "[测试用例通过:", "contains");
+  });
+
+  test("reports the first different output line and can select a syntax error", async ({ page }) => {
+    const editor = page.locator("#codeEditor");
+    await editor.fill('print(" Hello, Python World!")');
+    await page.locator("#submitTask").click();
+    await check(() => page.locator("#consoleOutput").text(), /第 1 行不同/);
+    await check(() => page.locator("#progressText").text(), "0/33 章");
+    await editor.fill("x = 1\nvalue =");
+    await page.locator("#runCode").click();
+    await check(() => page.locator("#locateError").text(), "跳到第 2 行");
+    await page.locator("#locateError").click();
+    await check(() => page.evaluate(() => {
+      const editor = document.activeElement;
+      return editor.value.slice(editor.selectionStart, editor.selectionEnd);
+    }), "value =");
+  });
+
+  test("offers a real archive download in the todo lesson", async ({ page }) => {
+    await page.evaluate(() => {
+      localStorage.setItem("python-learn-progress-v2", JSON.stringify({ completedLessons: 30, lastLessonId: "31" }));
+    });
+    await page.reload();
+    const path = await page.evaluate(() => document.querySelector(".project-download a").getAttribute("href"));
+    assert.equal(path, "./downloads/python-todo-cli.zip");
+    const type = await page.evaluate(url => fetch(url).then(response => response.headers.get("content-type")), path);
+    assert.equal(type, "application/zip");
   });
 
   test("locks lessons, unlocks the next lesson, and protects reset", async ({ page }) => {
@@ -175,30 +238,33 @@ suite((test, width) => {
     await check(() => page.locator(".level-item:disabled").count(), 32);
     await check(() => page.locator("#resetProgress").enabled(), false);
 
-    await check(() => page.locator(".level-item").nth(2).attribute("title"), "完成前一章后解锁");
+    await check(() => page.locator(".level-item").nth(2).attribute("title"), /完成前一章后解锁/);
     await check(() => page.locator(".level-item").nth(2).attribute("aria-label"), /完成前一章后解锁/);
 
     await page.locator("#codeEditor").fill(helloWorld);
     await page.locator("#submitTask").click();
 
     await check(() => page.locator("#consoleOutput").text(), "[本章全部测试通过]", "contains");
-    await check(() => page.locator("#consoleOutput").text(), "Unlocked: 2.", "contains");
+    await check(() => page.locator("#consoleOutput").text(), "已解锁第 2 章", "contains");
     await check(() => page.locator("#progressText").text(), "1/33 章");
     await check(() => page.locator(".level-item:disabled").count(), 31);
     await check(() => page.locator(".level-item").nth(1).enabled(), true);
     await check(() => page.locator("#resetProgress").enabled(), true);
     await check(() => page.locator("#nextLesson").visible(), true);
     await check(() => page.locator("#nextLesson").enabled(), true);
+    await page.reload();
+    await page.locator("#nextLesson").click();
+    await check(() => page.locator(".level-item[aria-current=step]").attribute("data-lesson-index"), "1");
 
     page.confirm( async (dialog) => {
-      assert.deepEqual(await dialog.getText(), "确认重置学习进度？");
+      assert.deepEqual(await dialog.getText(), "确认重置学习进度和草稿？");
       await dialog.dismiss();
     });
     await page.locator("#resetProgress").click();
     await check(() => page.locator("#progressText").text(), "1/33 章");
 
     page.confirm( async (dialog) => {
-      assert.deepEqual(await dialog.getText(), "确认重置学习进度？");
+      assert.deepEqual(await dialog.getText(), "确认重置学习进度和草稿？");
       await dialog.accept();
     });
     await page.locator("#resetProgress").click();
@@ -220,11 +286,15 @@ suite((test, width) => {
     });
     await page.reload();
 
-    await page.locator(".level-item").nth(2).click();
+    await openChapter(page, 2);
     await page.clickButton(/a=9 b=4/);
 
     await check(() => page.locator("#stdinInput").value(), "9\n4");
-    await check(() => page.locator("#testSummary").text(), "0/3 通过");
+    await check(() => page.locator("#testSummary").text(), "0/4 通过");
+    await page.locator("#codeEditor").fill(await page.evaluate(() => window.PY_LESSONS[2].answerCode));
+    await page.locator("#runCode").click();
+    await check(() => page.locator("#testSummary").text(), "1/4 通过");
+    await check(() => page.locator('[data-quest="first-pass"]').attribute("class"), /is-done/, "notMatch");
   });
 
   test("stale chapter navigation preserves newer saved progress", async ({ page }) => {
@@ -241,7 +311,7 @@ suite((test, width) => {
       }));
       return ids;
     });
-    await page.locator(".level-item").nth(1).click();
+    await openChapter(page, 1);
     const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("python-learn-progress-v2")));
     assert.equal(saved.lastLessonId, "2");
     assert.deepEqual(saved.completedLessonIds, ["1", "2"]);
@@ -302,7 +372,7 @@ suite((test, width) => {
       }, newerDraft);
       pendingReply("Hello, Python World!\n");
       await check(() => page.locator("#consoleOutput").text(), "本章草稿已在其他页面更新", "contains");
-      await page.locator(".level-item").nth(0).click();
+      await openChapter(page, 0);
       await check(() => page.locator("#codeEditor").value(), newerDraft);
       await check(() => page.locator("#progressText").text(), "0/33 章");
       await check(() => page.locator("#testSummary").text(), "0/1 通过");
@@ -349,7 +419,8 @@ suite((test, width) => {
     const outputByInput = {
       "17\n5": "17 + 5 = 22\n17 // 5 = 3\n17 % 5 = 2\n17 ** 2 = 289\n17 / 5 = 3.4\n",
       "9\n4": "9 + 4 = 13\n9 // 4 = 2\n9 % 4 = 1\n9 ** 2 = 81\n9 / 4 = 2.25\n",
-      "12\n6": "12 + 6 = 18\n12 // 6 = 2\n12 % 6 = 0\n12 ** 2 = 144\n12 / 6 = 2.0\n"
+      "12\n6": "12 + 6 = 18\n12 // 6 = 2\n12 % 6 = 0\n12 ** 2 = 144\n12 / 6 = 2.0\n",
+      "7\n-2": "7 + -2 = 5\n7 // -2 = -4\n7 % -2 = -1\n7 ** 2 = 49\n7 / -2 = -3.5\n"
     };
     await mockPythonRunner(page, (payload) => outputByInput[String(payload.stdin || "").trim()] || "");
     await page.evaluate(() => {
@@ -364,13 +435,13 @@ suite((test, width) => {
     });
     await page.reload();
 
-    await page.locator(".level-item").nth(2).click();
+    await openChapter(page, 2);
     const answerCode = await page.evaluate(() => window.PY_LESSONS[2].answerCode);
     await page.locator("#codeEditor").fill(answerCode);
     await page.locator("#submitTask").click();
 
-    await check(() => page.locator("#consoleOutput").text(), "[全测完成: 本次 3/3 通过", "contains");
-    await check(() => page.locator("#consoleOutput").text(), "Unlocked: 4.", "contains");
+    await check(() => page.locator("#consoleOutput").text(), "[全测完成: 本次 4/4 通过", "contains");
+    await check(() => page.locator("#consoleOutput").text(), "已解锁第 4 章", "contains");
     await check(() => page.locator("#progressText").text(), "3/33 章");
     await check(async () =>
         page.evaluate(() => {
@@ -380,7 +451,7 @@ suite((test, width) => {
             passedCount: state.passedTestCaseIdsByLessonId?.["3"]?.length || 0
           };
         })
-      , { completedLessons: 3, passedCount: 3 });
+      , { completedLessons: 3, passedCount: 4 });
   });
 
   test("submits the current code even after all historical cases passed", async ({ page }) => {
@@ -394,11 +465,11 @@ suite((test, width) => {
       }));
     });
     await page.reload();
-    await check(() => page.locator("#testSummary").text(), "3/3 通过");
+    await check(() => page.locator("#testSummary").text(), "4/4 通过");
     await page.locator("#codeEditor").fill('print("incorrect")');
-    await check(() => page.locator("#testSummary").text(), "0/3 通过");
+    await check(() => page.locator("#testSummary").text(), "0/4 通过");
     await page.locator("#submitTask").click();
-    await check(() => page.locator("#consoleOutput").text(), "[全测完成: 本次 0/3 通过]", "contains");
+    await check(() => page.locator("#consoleOutput").text(), "[全测完成: 本次 0/4 通过]", "contains");
     await check(() => page.locator("#progressText").text(), "2/33 章");
     await check(() => page.locator(".level-item").nth(3).enabled(), false);
   });
@@ -414,19 +485,19 @@ suite((test, width) => {
     await page.locator("#submitTask").click();
     try {
       await check(() => typeof pendingReply, "function");
-      await page.locator(".level-item").nth(2).click();
+      await openChapter(page, 2);
       pendingReply("Hello, Python World!\n");
-      await check(() => page.locator("#consoleOutput").text(), "Loaded: 3.", "contains");
+      await check(() => page.locator("#consoleOutput").text(), "");
       await check(() => page.locator("#progressText").text(), "2/33 章");
 
-      await page.locator(".level-item").nth(0).click();
+      await openChapter(page, 0);
       pendingReply = undefined;
       await page.locator("#submitTask").click();
       await check(() => typeof pendingReply, "function");
       page.confirm(dialog => dialog.accept());
       await page.locator("#resetProgress").click();
       pendingReply("Hello, Python World!\n");
-      await check(() => page.locator("#consoleOutput").text(), "Progress reset.", "contains");
+      await check(() => page.locator("#consoleOutput").text(), "已重置学习进度", "contains");
       await check(() => page.locator("#progressText").text(), "0/33 章");
     } finally {
       pendingReply?.("Hello, Python World!\n");
@@ -506,8 +577,8 @@ suite((test, width) => {
     assert.deepEqual(runRequests.at(-1).stdin, "Alice\n18");
 
     await page.locator("#focusCode").click();
-    await check(() => page.locator("#focusStdinInput").value(), "Alice\n18");
-    await page.locator("#focusStdinInput").fill("Bob\n19");
+    await check(() => page.locator("#focusModal #stdinInput").value(), "Alice\n18");
+    await page.locator("#focusModal #stdinInput").fill("Bob\n19");
     await page.locator("#focusRun").click();
     await check(() => page.locator("#focusOutput").text(), "stdin:Bob\n19", "contains");
     assert.deepEqual(runRequests.at(-1).stdin, "Bob\n19");
@@ -515,9 +586,34 @@ suite((test, width) => {
     await check(() => page.locator("#stdinInput").value(), "Bob\n19");
   });
 
+  test("standard input preserves selection and native undo across focus mode", async ({ page }) => {
+    const input = page.locator("#stdinInput");
+    const before = "中文\nSecond line";
+    await input.fill(before);
+    await page.evaluate(() => document.querySelector("#stdinInput").setSelectionRange(0, 2));
+    await page.locator("#focusCode").click();
+    await check(() => page.evaluate(() => {
+      const input = document.querySelector("#focusModal #stdinInput");
+      return [input.selectionStart, input.selectionEnd];
+    }), [0, 2]);
+    await input.click();
+    await page.evaluate(() => {
+      const input = document.querySelector("#stdinInput");
+      input.setSelectionRange(0, 2);
+      document.execCommand("insertText", false, "你好");
+    });
+    await check(() => input.value(), "你好\nSecond line");
+    await page.locator("#closeFocus").click();
+    assert.ok(await page.evaluate(() => {
+      document.querySelector("#stdinInput").focus();
+      return document.execCommand("undo");
+    }));
+    await check(() => input.value(), before);
+  });
+
   test("restores focus-mode edits and an empty draft after reload", async ({ page }) => {
     await page.locator("#focusCode").click();
-    await page.locator("#focusEditor").fill("# draft from focus mode");
+    await page.locator("#focusModal #codeEditor").fill("# draft from focus mode");
     await page.reload();
     await check(() => page.locator("#codeEditor").value(), "# draft from focus mode");
     await page.locator("#codeEditor").fill("");
@@ -584,6 +680,46 @@ suite((test, width) => {
     await check(() => editor.value(), saved);
   });
 
+  test("indentation respects selection boundaries and the caret on outdent", async ({ page }) => {
+    const editor = page.locator("#codeEditor");
+    await editor.fill("a\nb\nc");
+    await page.evaluate(() => document.querySelector("#codeEditor").setSelectionRange(0, 4, "backward"));
+    await editor.press("Tab");
+    assert.equal(await editor.value(), "    a\n    b\nc");
+    await editor.press("Shift+Tab");
+    assert.equal(await editor.value(), "a\nb\nc");
+    assert.deepEqual(await page.evaluate(() => {
+      const editor = document.querySelector("#codeEditor");
+      return [editor.selectionStart, editor.selectionEnd, editor.selectionDirection];
+    }), [0, 4, "backward"]);
+    await editor.fill("    print(1)");
+    await page.evaluate(() => document.querySelector("#codeEditor").setSelectionRange(1, 1));
+    await editor.press("Shift+Tab");
+    assert.equal(await editor.value(), "print(1)");
+    assert.deepEqual(await page.evaluate(() => {
+      const editor = document.querySelector("#codeEditor");
+      return [editor.selectionStart, editor.selectionEnd];
+    }), [0, 0]);
+  });
+
+  test("selection and native undo travel with the editor through focus mode", async ({ page }) => {
+    const editor = page.locator("#codeEditor");
+    const starter = await editor.value();
+    await page.evaluate(() => {
+      const editor = document.querySelector("#codeEditor");
+      editor.setSelectionRange(2, 6);
+    });
+    await page.locator("#focusCode").click();
+    await check(() => page.evaluate(() => [document.activeElement.selectionStart, document.activeElement.selectionEnd]), [2, 6]);
+    await editor.press("Tab");
+    const edited = await editor.value();
+    assert.notEqual(edited, starter);
+    await page.locator("#closeFocus").click();
+    await page.evaluate(() => document.querySelector("#codeEditor").focus());
+    assert.ok(await page.evaluate(() => document.execCommand("undo")));
+    await check(() => editor.value(), starter);
+  });
+
   test("supports leaving the editor and focus mode with the keyboard", async ({ page }) => {
     const editor = page.locator("#codeEditor");
     const starter = await editor.value();
@@ -593,7 +729,11 @@ suite((test, width) => {
     await check(() => editor.value(), starter);
 
     await page.locator("#focusCode").click();
-    await check(() => page.evaluate(() => document.activeElement.id), "focusEditor");
+    await check(() => page.evaluate(() => document.activeElement.id), "codeEditor");
+    await page.press("F6");
+    await check(() => page.evaluate(() => document.activeElement.id), "stdinInput");
+    await page.press("F6");
+    await check(() => page.evaluate(() => document.activeElement.id), "codeEditor");
     await page.press("Escape");
     await check(() => page.evaluate(() => document.activeElement.id), "focusCode");
   });

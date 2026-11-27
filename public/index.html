@@ -34,7 +34,8 @@
     </noscript>
     <link rel="stylesheet" href="./styles.css" />
     <script src="./course-data.js" defer></script>
-    <script src="./app.js" defer></script>
+    <script src="./editor-caret.js" defer></script>
+    <script type="module" src="./app.js"></script>
   </head>
   <body>
     <div class="training-app">
@@ -73,18 +74,26 @@
           <b id="progressPercent">0%</b>
         </div>
 
+        <div class="runner-picker">
+          <select id="runnerMode" aria-label="运行环境">
+            <option value="local">本地 Python</option>
+            <option value="online">在线 Judge0</option>
+          </select>
+        </div>
+
         <div class="header-actions">
           <button class="square-button" id="themeToggle" type="button" aria-label="切换日夜模式" title="切换日夜模式">
-            <span class="button-glyph">☾</span>
+            <span class="button-glyph" aria-hidden="true">☾</span>
           </button>
           <button class="square-button" id="resetProgress" type="button" aria-label="重置学习进度" title="重置学习进度">
-            <span class="button-glyph">↻</span>
+            <span class="button-glyph" aria-hidden="true">↻</span>
           </button>
         </div>
       </header>
 
       <div class="study-grid">
         <aside class="level-sidebar" aria-label="课程章节">
+          <button id="toggleChapters" class="chapter-toggle" type="button" aria-controls="levelList" aria-expanded="false">课程目录</button>
           <div id="levelList" class="level-list"></div>
         </aside>
 
@@ -92,21 +101,21 @@
           <article id="lessonArticle" class="lesson-article"></article>
         </main>
 
-        <section class="practice-column" aria-label="Python 编辑器与输出">
+        <section id="practice" class="practice-column" aria-label="Python 编辑器与输出" tabindex="-1">
           <div class="editor-panel">
             <div class="panel-toolbar">
-              <span><b class="tool-mark">&gt;&gt;&gt;</b> Python 编辑器 <em>main.py</em></span>
+              <span><b class="tool-mark" aria-hidden="true">&gt;&gt;&gt;</b> Python 编辑器 <em>main.py</em></span>
               <div class="editor-actions">
                 <button class="soft-button" id="focusCode" type="button">
-                  <span class="button-glyph">↗</span>
+                  <span class="button-glyph" aria-hidden="true">↗</span>
                   专注代码
                 </button>
                 <button class="soft-button" id="showAnswer" type="button" aria-controls="answerDrawer" aria-expanded="false">
-                  <span class="button-glyph">?</span>
+                  <span class="button-glyph" aria-hidden="true">?</span>
                   查看答案
                 </button>
                 <button class="run-button" id="runCode" type="button">
-                  <span class="button-glyph">▶</span>
+                  <span class="button-glyph" aria-hidden="true">▶</span>
                   运行代码
                 </button>
               </div>
@@ -115,7 +124,7 @@
               <pre class="editor-lines" id="editorLines" aria-hidden="true">1</pre>
               <div class="editor-container">
                 <pre class="editor-highlight" id="editorHighlight" aria-hidden="true"></pre>
-                <textarea id="codeEditor" spellcheck="false" wrap="off" aria-label="Python 代码编辑器" aria-description="按 Esc 后可用 Tab 或 Shift+Tab 移出编辑器"></textarea>
+                <textarea id="codeEditor" spellcheck="false" autocapitalize="off" autocorrect="off" wrap="off" aria-label="Python 代码编辑器" aria-description="F6 切换到标准输入。普通模式下按 Esc 后可用 Tab 移出编辑器，专注模式下按 Esc 返回。"></textarea>
               </div>
             </div>
           </div>
@@ -123,7 +132,7 @@
           <div class="io-grid">
             <div class="input-panel">
               <div class="panel-toolbar">
-                <span><b class="tool-mark">&lt;</b> 标准输入 <em>stdin</em></span>
+                <span><b class="tool-mark" aria-hidden="true">&lt;</b> 标准输入 <em>stdin</em></span>
                 <button class="link-button" id="clearStdin" type="button">清空输入</button>
               </div>
               <div class="case-dock" aria-label="测试用例">
@@ -132,37 +141,41 @@
                   <span id="testSummary">0/0 通过</span>
                 </div>
                 <div id="testCaseList" class="test-case-list"></div>
-
               </div>
-              <textarea id="stdinInput" spellcheck="false" wrap="soft" aria-label="标准输入"></textarea>
+              <div class="stdin-surface">
+                <pre class="stdin-mirror" aria-hidden="true"></pre>
+                <textarea id="stdinInput" spellcheck="false" autocapitalize="off" autocorrect="off" wrap="soft" aria-label="标准输入" aria-description="F6 返回代码编辑器"></textarea>
+              </div>
             </div>
 
             <div class="console-panel">
               <div class="panel-toolbar">
-                <span><b class="tool-mark">$_</b> 控制台输出 <em>Terminal</em></span>
-                <button class="link-button" id="clearConsole" type="button">清空控制台</button>
+                <span><b class="tool-mark" aria-hidden="true">$_</b> 控制台</span>
+                <div class="console-actions">
+                  <button class="link-button error-location" id="locateError" type="button" hidden></button>
+                  <button class="link-button" id="clearConsole" type="button" aria-label="清空控制台">清空</button>
+                </div>
               </div>
-              <pre id="consoleOutput">Loaded: 1. Python 解释执行模型与第一个程序</pre>
+              <pre id="consoleOutput"></pre>
               <span id="runMeta" class="run-meta" role="status">等待运行</span>
             </div>
           </div>
 
-          <div class="runner-controls">
-            <label for="runnerMode">运行环境</label>
-            <select id="runnerMode" aria-describedby="runnerNotice">
-              <option value="local">本地 Python</option>
-              <option value="online">在线 Judge0</option>
-            </select>
-            <span id="runnerNotice"></span>
+          <div class="draft-controls">
             <span id="draftStatus" role="status"></span>
+            <div class="draft-recovery" id="draftRecovery" hidden>
+              <select id="draftVersions" aria-label="本章可恢复的草稿版本" hidden></select>
+              <button class="link-button" id="restoreDraft" type="button" hidden>载入版本</button>
+              <button class="link-button" id="downloadDraft" type="button">下载本页代码</button>
+            </div>
           </div>
           <div class="submit-row">
             <button class="submit-button" id="submitTask" type="button">
-              <span class="button-glyph">✓</span>
+              <span class="button-glyph" aria-hidden="true">✓</span>
               提交验证
             </button>
             <button class="next-button" id="nextLesson" type="button" hidden disabled>
-              <span class="button-glyph">→</span>
+              <span class="button-glyph" aria-hidden="true">→</span>
               下一章
             </button>
           </div>
@@ -170,14 +183,14 @@
       </div>
     </div>
 
-    <aside class="answer-drawer" id="answerDrawer" aria-hidden="true">
+    <aside class="answer-drawer" id="answerDrawer" aria-hidden="true" inert>
       <div class="answer-drawer-header">
         <div>
           <strong>参考实现</strong>
           <span>当前章节示例答案</span>
         </div>
         <button class="square-button compact" id="closeAnswer" type="button" aria-label="隐藏答案" title="隐藏答案">
-          <span class="button-glyph">×</span>
+          <span class="button-glyph" aria-hidden="true">×</span>
         </button>
       </div>
       <div class="answer-drawer-body">
@@ -193,34 +206,28 @@
             <span>main.py · 单文件练习</span>
           </div>
           <div class="focus-actions">
+            <button class="soft-button" id="focusStop" type="button" hidden>停止运行</button>
             <button class="soft-button" id="focusRun" type="button">
-              <span class="button-glyph">▶</span>
+              <span class="button-glyph" aria-hidden="true">▶</span>
               运行
             </button>
             <button class="square-button compact" id="closeFocus" type="button" aria-label="关闭专注模式" title="关闭">
-              <span class="button-glyph">×</span>
+              <span class="button-glyph" aria-hidden="true">×</span>
             </button>
           </div>
         </header>
         <div class="focus-body">
-          <div class="code-surface focus-code-surface">
-            <pre class="editor-lines" id="focusLines" aria-hidden="true">1</pre>
-            <div class="editor-container">
-              <pre class="editor-highlight" id="focusHighlight" aria-hidden="true"></pre>
-              <textarea id="focusEditor" spellcheck="false" wrap="off" aria-label="专注模式 Python 代码编辑器"></textarea>
-            </div>
-          </div>
           <div class="focus-io-column">
             <div class="focus-input-panel">
               <div class="focus-console-title">
                 <span>输入</span>
                 <span>stdin</span>
               </div>
-              <textarea id="focusStdinInput" spellcheck="false" wrap="soft" aria-label="专注模式标准输入"></textarea>
             </div>
             <div class="focus-console">
               <div class="focus-console-title">
                 <span>输出</span>
+                <button class="link-button error-location" id="focusLocateError" type="button" hidden></button>
                 <span id="focusRunMeta" role="status">等待运行</span>
               </div>
               <pre id="focusOutput"></pre>

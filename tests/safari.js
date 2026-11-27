@@ -1,4 +1,4 @@
-import { after, before, beforeEach, describe, test as nodeTest } from "node:test";
+import { after, afterEach, before, beforeEach, describe, test as nodeTest } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import http from "node:http";
@@ -8,8 +8,27 @@ import { setTimeout as delay } from "node:timers/promises";
 
 export function suite(register) {
   describe("Safari", { concurrency: false }, () => {
+    let driver, service, initialWindow;
+    before(async () => {
+      service = new safari.ServiceBuilder("/usr/bin/safaridriver").build();
+      const url = await service.start();
+      try {
+        driver = await new Builder().disableEnvironmentOverrides().usingServer(url)
+          .forBrowser("safari").setCapability("pageLoadStrategy", "eager").build();
+      } catch (error) {
+        if (error.name !== "SessionNotCreatedError") throw error;
+        throw new Error(`SafariDriver reached the session endpoint but could not start Safari: ${error.message}. See README.md for native Safari test setup.`, { cause: error });
+      }
+      const caps = await driver.getCapabilities();
+      console.log(`WebDriver session: ${caps.get("browserName")} ${caps.get("browserVersion")} (${caps.get("platformName")})`);
+      await driver.manage().setTimeouts({ pageLoad: 20_000 });
+      initialWindow = await driver.getWindowHandle();
+    });
+    after(async () => {
+      try { await driver?.quit(); } finally { await service?.kill(); }
+    });
     for (const width of [1440, 1024, 390]) describe(`Safari ${width}px`, { concurrency: false }, () => {
-      let driver, service, origin, proxy, app, appUrl, run, confirm;
+      let origin, proxy, app, appUrl, run, confirm, testWindow;
       const page = {
         evaluate: (fn, ...args) => driver.executeScript(fn, ...args),
         async reload() {
@@ -52,7 +71,7 @@ export function suite(register) {
         title: () => driver.getTitle()
       };
       async function press(keys) {
-        const names = { ControlOrMeta: Key.COMMAND, Control: Key.CONTROL, Shift: Key.SHIFT, Tab: Key.TAB, Enter: Key.ENTER, ArrowRight: Key.ARROW_RIGHT, Escape: Key.ESCAPE };
+        const names = { ControlOrMeta: Key.COMMAND, Control: Key.CONTROL, Shift: Key.SHIFT, F6: Key.F6, Tab: Key.TAB, Enter: Key.ENTER, ArrowRight: Key.ARROW_RIGHT, Escape: Key.ESCAPE };
         const parts = keys.split("+").map(key => names[key] ?? key);
         const actions = driver.actions();
         for (const key of parts) actions.keyDown(key);
@@ -61,18 +80,21 @@ export function suite(register) {
       }
       async function click(target) {
         assert.ok(target, "Click target is missing");
-        await driver.executeScript("arguments[0].scrollIntoView({block:'center', inline:'center', behavior:'instant'})", target);
-        await check(() => driver.executeScript(function (node) {
+        const label = await driver.executeAsyncScript(function (node, ready) {
+          node.scrollIntoView({block: "center", inline: "center", behavior: "instant"});
+          requestAnimationFrame(() => requestAnimationFrame(() => ready(node.id || node.getAttribute("aria-label") || node.tagName)));
+        }, target);
+        const point = await driver.wait(() => driver.executeScript(function (node) {
           const rect = node.getBoundingClientRect();
           const left = Math.max(0, rect.left), right = Math.min(innerWidth, rect.right);
           const top = Math.max(0, rect.top), bottom = Math.min(innerHeight, rect.bottom);
-          return left < right && top < bottom &&
-            node.contains(document.elementFromPoint((left + right) / 2, (top + bottom) / 2));
-        }, target), true);
+          const x = Math.floor((left + right) / 2), y = Math.floor((top + bottom) / 2);
+          return left < right && top < bottom && node.contains(document.elementFromPoint(x, y)) ? {x, y} : null;
+        }, target), 5000, `Click target must be visible and unobstructed: ${label}`);
         const handle = confirm;
         confirm = undefined;
         try {
-          await target.click();
+          await driver.actions().move({ ...point, duration: 0 }).click().perform();
         } catch (error) {
           if (!handle || error.name !== "UnexpectedAlertOpenError") throw error;
         }
@@ -91,6 +113,11 @@ export function suite(register) {
         await check(async () => (await fetch(appUrl)).ok, true);
         proxy = http.createServer(async (req, res) => {
           try {
+            if (req.url === "/test-start") {
+              res.writeHead(200, { "Content-Type": "text/html", "Cache-Control": "no-store" });
+              res.end("<!doctype html><title>Safari regression</title>");
+              return;
+            }
             const method = req.method;
             const headers = {};
             const contentType = req.headers["content-type"];
@@ -116,25 +143,29 @@ export function suite(register) {
         });
         await new Promise(resolve => proxy.listen(0, "127.0.0.1", resolve));
         origin = "http://127.0.0.1:" + proxy.address().port;
-        service = new safari.ServiceBuilder("/usr/bin/safaridriver").build();
-        driver = await new Builder().disableEnvironmentOverrides().usingServer(await service.start()).forBrowser("safari").build();
-        await page.resize(width, width === 390 ? 844 : 980);
       });
       beforeEach(async () => {
         run = confirm = undefined;
-        await driver.get(origin);
-        await check(() => page.evaluate(() => document.querySelector(".level-item.is-active") !== null), true);
+        await driver.switchTo().newWindow("window");
+        testWindow = await driver.getWindowHandle();
+        await page.resize(width, width === 390 ? 844 : 980);
+        await driver.get(origin + "/test-start");
         await page.evaluate(() => localStorage.clear());
-        await page.reload();
+        await driver.get(origin);
+        await check(() => page.evaluate(() => !!document.querySelector(".level-item.is-active")), true);
+      });
+      afterEach(async () => {
+        if (!testWindow) return;
+        try { await driver.close(); } finally {
+          testWindow = undefined;
+          await driver.switchTo().window(initialWindow);
+        }
       });
       after(async () => {
-        try { await driver?.quit(); } finally {
-          await service?.kill();
-          app?.kill();
-          if (proxy) {
-            proxy.closeAllConnections();
-            await new Promise(resolve => proxy.close(resolve));
-          }
+        app?.kill();
+        if (proxy) {
+          proxy.closeAllConnections();
+          await new Promise(resolve => proxy.close(resolve));
         }
       });
       register((name, fn) => nodeTest(name, () => fn({ page })), width);

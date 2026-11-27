@@ -27,6 +27,7 @@ const mimeTypes = new Map([
   [".js", "text/javascript; charset=utf-8"],
   [".json", "application/json; charset=utf-8"],
   [".svg", "image/svg+xml; charset=utf-8"],
+  [".zip", "application/zip"],
   [".png", "image/png"],
   [".ico", "image/x-icon"]
 ]);
@@ -210,9 +211,12 @@ function runCommand(command, args, options = {}) {
     let stderr = "";
     let didTimeOut = false;
     let outputLimitExceeded = false;
+    const cancel = () => child.kill("SIGKILL");
+    options.signal?.addEventListener("abort", cancel, { once: true });
+    if (options.signal?.aborted) cancel();
     const timer = setTimeout(() => {
       didTimeOut = true;
-      child.kill("SIGKILL");
+      cancel();
     }, options.timeoutMs || runTimeoutMs);
 
     function appendOutput(output, chunk) {
@@ -225,12 +229,16 @@ function runCommand(command, args, options = {}) {
     }
     child.stdout.setEncoding("utf8").on("data", (chunk) => { stdout = appendOutput(stdout, chunk); });
     child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr = appendOutput(stderr, chunk); });
-    child.on("error", (error) => {
+    const cleanup = () => {
       clearTimeout(timer);
+      options.signal?.removeEventListener("abort", cancel);
+    };
+    child.on("error", (error) => {
+      cleanup();
       resolveRun({ ok: false, missingCommand: error.code === "ENOENT", error, stdout, stderr });
     });
     child.on("close", (code) => {
-      clearTimeout(timer);
+      cleanup();
       resolveRun({
         ok: code === 0 && !didTimeOut && !outputLimitExceeded,
         code,
@@ -353,8 +361,12 @@ async function handleRun(request, response, localOrigin) {
   const workDir = join(tmpdir(), `python-learn-${randomUUID()}`);
   const sourceFile = join(workDir, "main.py");
   const startTime = Date.now();
+  const controller = new AbortController();
+  const cancel = () => controller.abort();
+  response.once("close", cancel);
 
   try {
+    if (response.destroyed) return;
     await mkdir(workDir, { recursive: true });
     await writeFile(sourceFile, code, "utf8");
 
@@ -363,8 +375,10 @@ async function handleRun(request, response, localOrigin) {
     const result = await runCommand(python.command, ["-I", "-X", "utf8", sourceFile], {
       cwd: workDir,
       stdin,
+      signal: controller.signal,
       timeoutMs: runTimeoutMs
     });
+    if (response.destroyed) return;
 
     const limitMessage = result.didTimeOut
       ? `程序运行超过 ${runTimeoutMs / 1000} 秒，已停止。`
@@ -374,18 +388,19 @@ async function handleRun(request, response, localOrigin) {
     sendJson(response, 200, {
       status: result.didTimeOut ? "timeout" : result.outputLimitExceeded ? "output-limit" : result.ok ? "success" : "runtime-error",
       stdout: result.stdout,
-      stderr: [result.stderr, limitMessage].filter(Boolean).join("\n"),
+      stderr: [result.stderr.replaceAll(sourceFile, "main.py"), limitMessage].filter(Boolean).join("\n"),
       exitCode: result.code,
       durationMs: Date.now() - startTime
     });
   } catch (error) {
-    sendJson(response, 500, {
+    if (!response.destroyed) sendJson(response, 500, {
       status: "server-error",
       stdout: "",
       stderr: `运行服务出错：${error.message}`,
       durationMs: Date.now() - startTime
     });
   } finally {
+    response.removeListener("close", cancel);
     try {
       await rm(workDir, { recursive: true, force: true });
     } catch {

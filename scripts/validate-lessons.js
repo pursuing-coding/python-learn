@@ -3,6 +3,7 @@ import path from "node:path";
 import vm from "node:vm";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { normalizeOutput } from "../public/grading.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -32,7 +33,7 @@ if (!fs.existsSync(courseDataPath)) {
 }
 
 const indexHtml = fs.readFileSync(indexPath, "utf8");
-for (const asset of ["./styles.css", "./course-data.js", "./app.js"]) {
+for (const asset of ["./styles.css", "./course-data.js", "./editor-caret.js", "./app.js"]) {
   if (!indexHtml.includes(asset)) {
     throw new Error(`public/index.html does not reference ${asset}.`);
   }
@@ -68,7 +69,6 @@ if (!pythonCommand) {
   console.log("No local Python interpreter found; skipping answer-output verification.");
 }
 
-const normalizeOutput = (value) => String(value || "").replace(/\r\n/g, "\n").trim();
 
 function verifyAnswer(lesson, testCase) {
   const run = spawnSync(pythonCommand, ["-I", "-X", "utf8", "-c", lesson.answerCode], {
@@ -128,6 +128,7 @@ lessons.forEach((lesson, index) => {
     ? lesson.testCases
     : [{ id: "default", title: "默认样例", stdin: lesson.defaultStdin || "", expectedOutput: lesson.expectedOutput }];
 
+  const caseIds = new Set();
   testCases.forEach((testCase, testIndex) => {
     for (const field of ["id", "title", "stdin", "expectedOutput"]) {
       if (!(field in testCase)) {
@@ -137,9 +138,10 @@ lessons.forEach((lesson, index) => {
     if (!String(testCase.id).trim() || !String(testCase.title).trim()) {
       throw new Error(`Lesson ${lesson.id} test case ${testIndex + 1} has empty id/title.`);
     }
-    if (!String(testCase.expectedOutput).trim() && !String(lesson.expectedOutput).trim()) {
-      throw new Error(`Lesson ${lesson.id} test case ${testIndex + 1} has empty expected output.`);
+    if (typeof testCase.expectedOutput !== "string" || typeof testCase.stdin !== "string" || caseIds.has(testCase.id)) {
+      throw new Error("Invalid input/output or duplicate id for lesson " + lesson.id + ", case " + testCase.id);
     }
+    caseIds.add(testCase.id);
   });
 
   if (pythonCommand) {
@@ -154,3 +156,11 @@ lessons.forEach((lesson, index) => {
 
 console.log(`Total lessons: ${lessons.length}`);
 console.log(`Total test cases: ${totalTestCases}`);
+
+if (pythonCommand) {
+  const project = spawnSync(pythonCommand, [path.join(__dirname, "package-project.py"), "--check"], {
+    stdio: "inherit",
+    timeout: 30_000
+  });
+  if (project.status !== 0) throw new Error("The downloadable todo project did not pass its checks.");
+}
